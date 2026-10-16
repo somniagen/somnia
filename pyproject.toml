@@ -1,0 +1,36 @@
+[project]
+name = "somnia"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "torch>=2.9",
+  "torchvision",
+  "diffusers>=0.35",
+  "transformers>=4.56",
+  "accelerate",
+  "peft",
+  "safetensors",
+  "spandrel",
+  "ultralytics",
+  "opencv-python-headless",
+  "numpy",
+  "pillow",
+  "fastapi",
+  "uvicorn[standard]",
+  "httpx",
+  "python-multipart",
+  "sentencepiece",
+  "protobuf",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

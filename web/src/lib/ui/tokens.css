@@ -1,0 +1,152 @@
+:root {
+  color-scheme: dark;
+
+  --bg: #0f0f0f;
+  --surface-1: #151515;
+  --surface-2: #1b1b1b;
+  --surface-3: #232323;
+  --surface-4: #2c2c2c;
+  --overlay: rgb(8 8 8 / 0.6);
+
+  --grad-bg: radial-gradient(1400px 700px at 50% -20%, #1a1a1a, transparent 70%), linear-gradient(180deg, #121212, #0b0b0b);
+  --grad-1: linear-gradient(180deg, #191919, #131313);
+  --grad-2: linear-gradient(180deg, #202020, #181818);
+  --grad-3: linear-gradient(180deg, #2a2a2a, #1f1f1f);
+  --grad-4: linear-gradient(180deg, #343434, #282828);
+  --grad-accent: linear-gradient(180deg, #ffffff, #cfcfcf);
+  --grad-accent-hi: linear-gradient(180deg, #ffffff, #e6e6e6);
+  --grad-danger: linear-gradient(180deg, #ef6a62, #c9443d);
+  --grad-progress: linear-gradient(90deg, rgb(255 255 255 / 0.15), #d8d8d8 60%, #ffffff);
+  --sheen: inset 0 1px 0 rgb(255 255 255 / 0.07);
+  --sheen-strong: inset 0 1px 0 rgb(255 255 255 / 0.5);
+  --stripes: repeating-linear-gradient(-45deg, rgb(255 255 255 / 0.035) 0 8px, transparent 8px 16px);
+
+  --text: #f2f2f2;
+  --text-muted: #a0a0a0;
+  --text-faint: #6a6a6a;
+  --text-on-accent: #0f0f0f;
+
+  --hairline: rgb(255 255 255 / 0.08);
+  --focus-line: rgb(255 255 255 / 0.32);
+  --hover: rgb(255 255 255 / 0.06);
+  --pressed: rgb(255 255 255 / 0.1);
+  --scrim: rgb(6 6 6 / 0.72);
+  --shimmer: rgb(255 255 255 / 0.05);
+  --text-on-danger: #ffffff;
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 3px var(--accent);
+
+  --accent: #ededed;
+  --accent-strong: #ffffff;
+  --accent-soft: rgb(255 255 255 / 0.1);
+  --accent-glow: rgb(255 255 255 / 0.6);
+  --danger: #e5534b;
+  --danger-soft: rgb(229 83 75 / 0.14);
+  --success: #46b47e;
+  --success-soft: rgb(70 180 126 / 0.14);
+  --warning: #d9a441;
+  --warning-soft: rgb(217 164 65 / 0.14);
+
+  --tag-general: #7fa8d8;
+  --tag-artist: #d98a8a;
+  --tag-copyright: #b393d6;
+  --tag-character: #6fbf86;
+  --tag-meta: #d6b878;
+  --tag-lora: #d99a6a;
+  --tag-unknown: var(--text);
+  --boilerplate: var(--text-faint);
+
+  --font: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-md: 0.9375rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.5rem;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-2: 0 4px 14px rgb(0 0 0 / 0.45);
+  --shadow-3: 0 10px 32px rgb(0 0 0 / 0.6);
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+
+  --control-h: 34px;
+  --control-h-sm: 28px;
+  --touch: 44px;
+
+  --z-popover: 50;
+  --z-modal: 60;
+  --z-toast: 70;
+  --z-progress: 80;
+  --z-tooltip: 90;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  background-image: var(--grad-bg);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.icon {
+  font-family: 'Material Symbols Rounded';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  user-select: none;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-4) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur: 0ms;
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "extends": "@tsconfig/svelte/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "types": ["svelte"],
+    "baseUrl": ".",
+    "paths": { "$lib/*": ["src/lib/*"], "$features/*": ["src/features/*"] }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte"]
+}
