@@ -44,8 +44,6 @@ git clone https://github.com/somniagen/somnia/
 
 Somnia opens at **http://127.0.0.1:7865**. Put your checkpoints in `./models`, or point Somnia at your existing ComfyUI models folder in settings.
 
-<br />
-
 ## Features
 
 ### Good images without the fiddling
@@ -90,10 +88,6 @@ Somnia opens at **http://127.0.0.1:7865**. Put your checkpoints in `./models`, o
 - A proper mobile layout, not a shrunken desktop page
 - Install it to your home screen and **get notified** when the queue finishes
 - Optional password for other devices on your network
-
-Notifications on other devices need HTTPS. Put a certificate and key in Settings > Network (for example from `tailscale cert <machine>.ts.net` or `mkcert`), restart, and open the https address the certificate was made for. On iPhone and iPad, add Somnia to the home screen first.
-
-<br />
 
 ## License
 
