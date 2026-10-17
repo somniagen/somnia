@@ -26,11 +26,21 @@
 
 ## Quick start
 
-You need an NVIDIA GPU with about 12 GB of VRAM, on Windows 10/11 or Linux.
+You need git and an NVIDIA GPU with about 12 GB of VRAM, on Windows 10/11 or Linux.
 
-| Windows | Linux / macOS |
-| --- | --- |
-| `install.bat`, then `run.bat` | `./install.sh`, then `./run.sh` |
+### Windows
+```pwsh
+git clone https://github.com/somniagen/somnia/
+./install.bat
+./run.bat
+```
+
+### Linux
+```sh
+git clone https://github.com/somniagen/somnia/
+./install.sh
+./run.sh
+```
 
 Somnia opens at **http://127.0.0.1:7865**. Put your checkpoints in `./models`, or point Somnia at your existing ComfyUI models folder in settings.
 
