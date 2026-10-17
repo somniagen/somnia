@@ -3,6 +3,7 @@
   import ModelSelect from '$features/models/ModelSelect.svelte'
   import PromptEditor from '$features/prompt/PromptEditor.svelte'
   import PromptLibrary from '$features/prompt/PromptLibrary.svelte'
+  import SendTo from '$features/prompt/SendTo.svelte'
   import { session } from '$lib/session.svelte'
   import type { Family, SavedPrompt } from '$lib/types'
   import { AspectPicker, Dropzone, Field, IconButton, NumberField, SeedField, Segmented, Select, Sheet, Slider } from '$lib/ui'
@@ -11,6 +12,8 @@
   import DetailerGroup from './DetailerGroup.svelte'
   import SecondPassGroup from './SecondPassGroup.svelte'
   import UpscaleGroup from './UpscaleGroup.svelte'
+  import VariationField from './VariationField.svelte'
+  import EmbeddingPicker from './EmbeddingPicker.svelte'
 
   const p = $derived(session.params)
   const info = $derived(session.info)
@@ -54,13 +57,17 @@
       <Dropzone compact paste={false} title="Input image" icon="add_photo_alternate" onfiles={(f) => addFile(f[0])} />
     {/if}
 
-    <ModelSelect kind="checkpoint" family={fam} bind:value={p.model} />
+    <ModelSelect kind="checkpoint" family={fam} bind:value={p.model} defaults />
 
     {#key fam}
       <div class="prompt">
         <div class="phead">
           <span class="lbl">Prompt</span>
-          <IconButton icon="bookmarks" label="Saved prompts" size="sm" onclick={() => (library = true)} />
+          <span class="pact">
+            <SendTo from="generate" />
+            {#if fam === 'illustrious'}<EmbeddingPicker family={fam} />{/if}
+            <IconButton icon="bookmarks" label="Saved prompts" size="sm" onclick={() => (library = true)} />
+          </span>
         </div>
         <PromptEditor
           kind="positive"
@@ -107,6 +114,7 @@
         />
       {/snippet}
     </Field>
+    <VariationField {p} />
 
     <div class="two">
       <Field label="Batch" info="Images generated together in one run. Uses more VRAM.">
@@ -148,6 +156,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+  }
+  .pact {
+    display: flex;
+    gap: var(--sp-1);
   }
   .lbl {
     font-size: var(--fs-sm);

@@ -2,7 +2,7 @@
   import { api } from '$lib/api'
   import { live } from '$lib/live.svelte'
   import type { Job } from '$lib/types'
-  import { Button, EmptyState, GlowProgressBar, IconButton, coarse, toast } from '$lib/ui'
+  import { Button, EmptyState, GlowProgressBar, IconButton, Menu, coarse, toast, tooltip, type MenuItem } from '$lib/ui'
 
   let { title = true }: { title?: boolean } = $props()
 
@@ -34,11 +34,44 @@
     const ids = queued.map((j) => j.id)
     ids.splice(ids.indexOf(from), 1)
     ids.splice(ids.indexOf(target), 0, from)
+    await reorder(ids)
+  }
+  async function reorder(ids: string[]) {
     try {
       await api.reorder(ids)
     } catch (e) {
       toast.error('Reorder failed', { description: e instanceof Error ? e.message : String(e) })
     }
+  }
+  function move(j: Job, to: number) {
+    const ids = queued.map((q) => q.id).filter((id) => id !== j.id)
+    ids.splice(Math.max(0, Math.min(ids.length, to)), 0, j.id)
+    return reorder(ids)
+  }
+  async function togglePause() {
+    try {
+      await api.pause(!live.paused)
+    } catch (e) {
+      toast.error('Could not pause', { description: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  async function duplicate(j: Job) {
+    try {
+      await api.queue(j.params)
+    } catch (e) {
+      toast.error('Could not queue', { description: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  function menu(j: Job, i: number): MenuItem[] {
+    return [
+      { label: 'Run next', icon: 'vertical_align_top', disabled: i === 0, onselect: () => move(j, 0) },
+      { label: 'Move up', icon: 'arrow_upward', disabled: i === 0, onselect: () => move(j, i - 1) },
+      { label: 'Move down', icon: 'arrow_downward', disabled: i === queued.length - 1, onselect: () => move(j, i + 1) },
+      { label: 'Run last', icon: 'vertical_align_bottom', disabled: i === queued.length - 1, onselect: () => move(j, queued.length) },
+      { separator: true },
+      { label: 'Duplicate', icon: 'content_copy', onselect: () => duplicate(j) },
+      { label: 'Remove', icon: 'close', danger: true, onselect: () => cancel(j) },
+    ]
   }
   const snippet = (j: Job) => j.params.prompt.replace(/\s+/g, ' ').trim() || 'Empty prompt'
 </script>
@@ -47,7 +80,17 @@
   <div class="head">
     {#if title}<span class="title">Queue</span>{/if}
     {#if jobs.length}<span class="count">{jobs.length}</span>{/if}
+    {#if live.paused}<span class="pz">Paused</span>{/if}
     <span class="grow"></span>
+    {#if queued.length || live.paused}
+      <IconButton
+        icon={live.paused ? 'play_arrow' : 'pause'}
+        label={live.paused ? 'Resume queue' : 'Pause queue after the current job'}
+        size="sm"
+        active={live.paused}
+        onclick={togglePause}
+      />
+    {/if}
     {#if queued.length}
       <Button size="sm" variant="ghost" icon="playlist_remove" class="clr" onclick={clear}>Clear</Button>
     {/if}
@@ -63,7 +106,10 @@
             {#if live.preview}<img class="th" src={live.preview} alt="" />{:else}<div class="th ph"></div>{/if}
             <div class="txt">
               <div class="p">{snippet(running)}</div>
-              <div class="m">{running.params.width}x{running.params.height} / {running.params.steps} steps / {Math.round((live.current?.overall ?? 0) * 100)}%</div>
+              <div class="m">
+                {#if running.repeat}<span class="icon rep" use:tooltip={'Repeats until stopped'}>all_inclusive</span>{/if}
+                {running.params.width}x{running.params.height} / {running.params.steps} steps / {Math.round((live.current?.overall ?? 0) * 100)}%
+              </div>
             </div>
             <IconButton icon="stop_circle" label="Cancel" variant="danger" size="sm" onclick={() => cancel(running)} />
           </div>
@@ -76,7 +122,7 @@
           />
         </li>
       {/if}
-      {#each queued as j (j.id)}
+      {#each queued as j, i (j.id)}
         <li
           class="job"
           class:drag={dragId === j.id}
@@ -102,9 +148,17 @@
             {#if !coarse.current}<span class="icon grip">drag_indicator</span>{/if}
             <div class="txt">
               <div class="p">{snippet(j)}</div>
-              <div class="m">{j.params.width}x{j.params.height} / {j.params.steps} steps</div>
+              <div class="m">
+                {#if j.repeat}<span class="icon rep" use:tooltip={'Repeats until stopped'}>all_inclusive</span>{/if}
+                {j.params.width}x{j.params.height} / {j.params.steps} steps
+              </div>
             </div>
-            <IconButton icon="close" label="Remove" size="sm" class="rm" onclick={() => cancel(j)} />
+            <Menu items={menu(j, i)} placement="bottom-end" label="Job actions">
+              {#snippet trigger({ toggle, open })}
+                <IconButton icon="more_horiz" label="More" size="sm" active={open} onclick={toggle} />
+              {/snippet}
+            </Menu>
+            {#if !coarse.current}<IconButton icon="close" label="Remove" size="sm" class="rm" onclick={() => cancel(j)} />{/if}
           </div>
         </li>
       {/each}
@@ -137,6 +191,13 @@
   }
   .grow {
     flex: 1;
+  }
+  .pz {
+    font-size: var(--fs-xs);
+    padding: 1px 7px;
+    border-radius: var(--r-sm);
+    background: var(--warning-soft);
+    color: var(--warning);
   }
   :global(.clr) {
     color: var(--danger) !important;
@@ -203,6 +264,12 @@
     font-size: var(--fs-xs);
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
+  }
+  .rep {
+    font-size: 13px;
+    vertical-align: -2px;
+    margin-right: 2px;
+    color: var(--text-muted);
   }
   .job :global(.rm:hover) {
     color: var(--danger);

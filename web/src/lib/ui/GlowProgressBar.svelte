@@ -95,16 +95,28 @@
     opacity: 0;
     animation: none;
   }
+  /* below the notch / status bar, glow only spills downwards and hidden when idle so safari never samples it */
   .fixed {
     position: fixed;
-    top: 0;
+    top: env(safe-area-inset-top, 0px);
     left: 0;
     right: 0;
     z-index: var(--z-progress);
+    clip-path: inset(0 0 -120px 0);
+    visibility: hidden;
+    transition:
+      opacity 450ms var(--ease),
+      visibility 0s linear 450ms;
   }
   .shown {
     opacity: 1;
     transition-duration: 150ms;
+  }
+  .fixed.shown {
+    visibility: visible;
+    transition:
+      opacity 150ms var(--ease),
+      visibility 0s;
   }
   .error {
     --c: var(--danger);

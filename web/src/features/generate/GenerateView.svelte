@@ -8,7 +8,7 @@
   import { live } from '$lib/live.svelte'
   import { session } from '$lib/session.svelte'
   import type { GalleryItem } from '$lib/types'
-  import { Button, EmptyState, IconButton, Kbd, Sheet, Skeleton, mobile, reducedMotion, toast } from '$lib/ui'
+  import { Button, EmptyState, IconButton, Kbd, Menu, Sheet, Skeleton, mobile, reducedMotion, toast, type MenuItem } from '$lib/ui'
   import { addFile } from './actions.svelte'
   import ParamsPanel from './ParamsPanel.svelte'
   import Preview from './Preview.svelte'
@@ -81,19 +81,38 @@
     follow = true
   })
 
-  async function generate() {
+  const repeating = $derived(live.queue.some((j) => j.repeat))
+
+  async function generate(count?: number, repeat = false) {
     if (busy || !ready) return
     if (!session.params?.model) return toast.error('Pick a model first')
     busy = true
     try {
-      await session.generate()
+      await session.generate(count, repeat)
       follow = true
+      if (count && count > 1) toast.success(`Queued ${count}`)
     } catch (e) {
       toast.error('Could not queue', { description: e instanceof Error ? e.message : String(e) })
     } finally {
       busy = false
     }
   }
+  async function stopRepeat() {
+    try {
+      await api.stopRepeat()
+      toast.success('Stops after this one')
+    } catch (e) {
+      toast.error('Could not stop', { description: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  const bulk = $derived<MenuItem[]>([
+    ...[4, 10, 25, 50].map((n) => ({ label: `Queue ${n}`, icon: 'playlist_add', onselect: () => generate(n) })),
+    { separator: true },
+    repeating
+      ? { label: 'Stop repeating', icon: 'stop_circle', danger: true, onselect: stopRepeat }
+      : { label: 'Until stopped', icon: 'all_inclusive', onselect: () => generate(1, true) },
+  ])
+
   async function cancel() {
     const j = live.running
     if (!j) return
@@ -171,12 +190,29 @@
     {#if running}
       <Button variant="danger" icon="stop" onclick={cancel} aria-label="Cancel current">Cancel</Button>
     {/if}
-    <Button variant="primary" icon="auto_awesome" full loading={busy} disabled={!ready} onclick={generate} class="go">
+    <Button variant="primary" icon="auto_awesome" full loading={busy} disabled={!ready} onclick={() => generate()} class="go">
       Generate
       {#if active > 0}<span class="badge">{active}</span>{/if}
       {#if !mobile.current}<Kbd>Ctrl Enter</Kbd>{/if}
     </Button>
+    {@render bulkMenu()}
   </div>
+{/snippet}
+
+{#snippet bulkMenu()}
+  <Menu items={bulk} placement="top-end" label="Queue many">
+    {#snippet trigger({ toggle, open })}
+      <IconButton
+        icon={repeating ? 'all_inclusive' : 'playlist_add'}
+        label={repeating ? 'Repeating' : 'Queue many'}
+        variant="default"
+        class="bulk"
+        active={open || repeating}
+        disabled={!ready}
+        onclick={toggle}
+      />
+    {/snippet}
+  </Menu>
 {/snippet}
 
 {#snippet queueBody(recent: boolean)}
@@ -237,9 +273,10 @@
           onclick={toggleCollapsed}
         />
         {#if collapsed}
-          <Button variant="primary" icon="auto_awesome" loading={busy} disabled={!ready} onclick={generate}>
+          <Button variant="primary" icon="auto_awesome" loading={busy} disabled={!ready} onclick={() => generate()}>
             Generate{#if active > 0}<span class="badge">{active}</span>{/if}
           </Button>
+          {@render bulkMenu()}
         {/if}
         <span class="grow"></span>
         {#if !wide.current}
@@ -326,6 +363,10 @@
   .gb :global(.go:not(:disabled)) {
     height: 42px;
     font-weight: 600;
+  }
+  .gb :global(.bulk) {
+    height: 42px;
+    width: 42px;
   }
   .badge {
     min-width: 20px;

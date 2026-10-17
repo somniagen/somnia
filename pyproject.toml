@@ -13,6 +13,7 @@ dependencies = [
   "spandrel",
   "ultralytics",
   "opencv-python-headless",
+  "onnxruntime-gpu",
   "numpy",
   "pillow",
   "fastapi",
@@ -21,6 +22,7 @@ dependencies = [
   "python-multipart",
   "sentencepiece",
   "protobuf",
+  "pywebpush",
 ]
 
 [tool.uv]

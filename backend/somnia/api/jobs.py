@@ -19,7 +19,7 @@ def state() -> dict:
 def create(body: dict = Body(...)) -> dict:
     if not isinstance(body.get("params"), dict):
         raise HTTPException(400, "params required")
-    return {"ids": jobs.submit(body["params"], body.get("count", 1))}
+    return {"ids": jobs.submit(body["params"], body.get("count", 1), repeat=bool(body.get("repeat")))}
 
 
 @router.post("/jobs/reorder")
@@ -27,9 +27,20 @@ def reorder(body: dict = Body(...)) -> list[dict]:
     return jobs.reorder(body.get("ids", []))
 
 
+@router.post("/jobs/pause")
+def pause(body: dict = Body(...)) -> dict:
+    return {"paused": jobs.set_paused(bool(body.get("paused", True)))}
+
+
 @router.post("/jobs/clear")
 def clear() -> dict:
     jobs.clear()
+    return {}
+
+
+@router.post("/jobs/stop-repeat")
+def stop_repeat() -> dict:
+    jobs.stop_repeat()
     return {}
 
 

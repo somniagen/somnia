@@ -8,6 +8,8 @@
     fit?: 'cover' | 'contain'
     selected?: boolean
     selectable?: boolean
+    // checkerboard behind transparent images
+    checker?: boolean
     radius?: string
     class?: string
     style?: string
@@ -24,6 +26,7 @@
     fit = 'cover',
     selected = $bindable(false),
     selectable = false,
+    checker = false,
     radius = 'var(--r-md)',
     class: klass,
     style,
@@ -60,7 +63,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
-  class={['tile', klass, { selected, loaded, clickable: !!onclick }]}
+  class={['tile', klass, { selected, loaded, checker, clickable: !!onclick }]}
   style="aspect-ratio: {ar}; --rad: {radius}; {style ?? ''}"
   role={onclick ? 'button' : undefined}
   tabindex={onclick ? 0 : undefined}
@@ -120,6 +123,9 @@
   }
   .clickable {
     cursor: pointer;
+  }
+  .checker.loaded {
+    background: var(--checker);
   }
   .clickable:active {
     transform: scale(0.985);

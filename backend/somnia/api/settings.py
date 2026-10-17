@@ -4,7 +4,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Body, HTTPException, Request
 
-from .. import config, net
+from .. import auth, config, net
 from ..hub import hub
 
 router = APIRouter(prefix="/api")
@@ -15,6 +15,7 @@ def masked() -> dict:
     t = d.get("civitaiToken") or ""
     if t:
         d["civitaiToken"] = "****" + t[-4:]
+    d["lanPassword"] = auth.MASK if d.get("lanPassword") else ""
     return d
 
 
@@ -30,7 +31,12 @@ def patch_settings(request: Request, body: dict = Body(...)) -> dict:
     tok = body.get("civitaiToken")
     if isinstance(tok, str) and tok.startswith("****"):
         body.pop("civitaiToken")
+    pw = body.pop("lanPassword", None)
+    if isinstance(pw, str) and pw != auth.MASK:
+        body["lanPassword"] = auth.hash_password(pw) if pw else ""
     config.update_settings(**body)
+    if body.get("lanPassword"):
+        hub.kick_remote()
     m = masked()
     hub.broadcast({"type": "settings", "settings": m})
     return m

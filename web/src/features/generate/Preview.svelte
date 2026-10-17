@@ -19,15 +19,39 @@
   const showingLive = $derived(running && showLive)
   const src = $derived(showingLive ? live.preview : (item?.url ?? null))
   const dur = $derived(reducedMotion.current ? 0 : 260)
+
+  let fw = $state(0)
+  let fh = $state(0)
+  let nat = $state<[number, number] | null>(null)
+  const area = $derived.by(() => {
+    const r = showingLive ? cur?.region : null
+    if (!r || !nat || !fw || !fh) return null
+    const s = Math.min(fw / nat[0], fh / nat[1])
+    const w = nat[0] * s
+    const h = nat[1] * s
+    return { left: (fw - w) / 2 + r.x * w, top: (fh - h) / 2 + r.y * h, width: r.w * w, height: r.h * h }
+  })
 </script>
 
 <div class="stage">
-  <div class="frame">
+  <div class="frame" bind:clientWidth={fw} bind:clientHeight={fh}>
     {#each src ? [src] : [] as s (s)}
-      <button type="button" class="imgbtn" onclick={onopen} disabled={showingLive} transition:fade={{ duration: dur }}>
-        <img src={s} alt="" draggable="false" />
+      <button type="button" class="imgbtn" class:alpha={!showingLive && item?.alpha} onclick={onopen} disabled={showingLive} transition:fade={{ duration: dur }}>
+        <img
+          src={s}
+          alt=""
+          draggable="false"
+          onload={(e) => {
+            const im = e.currentTarget as HTMLImageElement
+            if (s === src) nat = [im.naturalWidth, im.naturalHeight]
+          }}
+        />
       </button>
     {/each}
+
+    {#if area}
+      <div class="area" style="left: {area.left}px; top: {area.top}px; width: {area.width}px; height: {area.height}px"></div>
+    {/if}
 
     {#if showingLive && !src}
       <div class="wait">
@@ -95,12 +119,42 @@
   .imgbtn:disabled {
     cursor: default;
   }
+  .imgbtn.alpha {
+    display: grid;
+    place-items: center;
+  }
+  .alpha img {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    background: var(--checker);
+  }
   img {
     width: 100%;
     height: 100%;
     object-fit: contain;
     display: block;
     user-select: none;
+  }
+  .area {
+    position: absolute;
+    pointer-events: none;
+    outline: 1.5px solid var(--accent-strong);
+    box-shadow:
+      0 0 0 100000px rgb(0 0 0 / 0.3),
+      0 0 18px 2px var(--accent-glow);
+    transition:
+      left 0.2s ease,
+      top 0.2s ease,
+      width 0.2s ease,
+      height 0.2s ease;
+    animation: breathe 1.4s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    50% {
+      outline-color: var(--accent);
+    }
   }
   .wait {
     display: flex;

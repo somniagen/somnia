@@ -20,6 +20,8 @@
   --sheen: inset 0 1px 0 rgb(255 255 255 / 0.07);
   --sheen-strong: inset 0 1px 0 rgb(255 255 255 / 0.5);
   --stripes: repeating-linear-gradient(-45deg, rgb(255 255 255 / 0.035) 0 8px, transparent 8px 16px);
+  /* shown behind transparent images */
+  --checker: repeating-conic-gradient(var(--surface-4) 0 25%, var(--surface-2) 0 50%) 0 0 / 16px 16px;
 
   --text: #f2f2f2;
   --text-muted: #a0a0a0;

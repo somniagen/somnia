@@ -2,8 +2,11 @@
   import { fade } from 'svelte/transition'
   import { download, reuse } from '$features/generate/actions.svelte'
   import ImageActions from '$features/generate/ImageActions.svelte'
+  import SendTo from '$features/prompt/SendTo.svelte'
+  import { promptOf } from '$features/prompt/send.svelte'
   import type { GalleryItem } from '$lib/types'
-  import { BottomSheet, Button, IconButton, clamp, mobile, reducedMotion, toast } from '$lib/ui'
+  import { BottomSheet, Button, Chip, IconButton, Menu, clamp, mobile, reducedMotion, toast, type MenuItem } from '$lib/ui'
+  import { library } from './library.svelte'
 
   let {
     items,
@@ -11,12 +14,18 @@
     onclose,
     onremoved,
     onmore,
+    coverId,
+    onsetcover,
+    oncompare,
   }: {
     items: GalleryItem[]
     index: number
     onclose: () => void
     onremoved?: (item: GalleryItem) => void
     onmore?: () => void
+    coverId?: string | null
+    onsetcover?: (item: GalleryItem) => void
+    oncompare?: (item: GalleryItem) => void
   } = $props()
 
   const PAD = 12
@@ -324,6 +333,21 @@
   const short = (id: string) => id.split(':').pop()?.replace(/\.(safetensors|ckpt|pt|pth)$/, '') ?? id
   const date = (t: number) => new Date(t * (t < 1e12 ? 1000 : 1)).toLocaleString()
   const pct = $derived(Math.round(z * fit * 100))
+
+  $effect(() => {
+    library.refresh()
+  })
+  const albumMenu = $derived<MenuItem[]>(
+    item
+      ? [
+          ...library.albums
+            .filter((a) => !item.albums?.includes(a.name))
+            .map((a) => ({ label: a.name, icon: 'photo_album', onselect: () => library.add([item], a.name) })),
+          ...(library.albums.some((a) => !item.albums?.includes(a.name)) ? [{ separator: true as const }] : []),
+          { label: 'New album', icon: 'add', onselect: () => library.add([item]) },
+        ]
+      : [],
+  )
 </script>
 
 {#snippet details()}
@@ -368,10 +392,21 @@
       {#if item.editedWith}
         <div class="edited"><span class="icon">edit</span>Edited in {item.editedWith.name}</div>
       {/if}
+      <div class="albums">
+        {#each item.albums ?? [] as a (a)}
+          <Chip label={a} size="sm" removable onremove={() => library.remove([item], a)} />
+        {/each}
+        <Menu items={albumMenu}>
+          {#snippet trigger({ toggle })}
+            <Button size="sm" variant="ghost" icon="photo_album" onclick={toggle}>{item.albums?.length ? 'Add' : 'Add to album'}</Button>
+          {/snippet}
+        </Menu>
+      </div>
       <div class="date">{date(item.createdAt)}</div>
       <div class="btns">
         <Button variant="primary" icon="history" full onclick={() => (reuse(item), (sheet = false), onclose())}>Reuse params</Button>
         <Button icon="download" onclick={() => download(item)}>Save</Button>
+        <SendTo get={() => promptOf(p)} only={['inpaint', 'grid']} after={() => ((sheet = false), onclose())} size="md" />
       </div>
     </div>
   {/if}
@@ -384,6 +419,25 @@
       {#if z > 1.01}<span class="zoom">{pct}%</span>{/if}
       <span class="grow"></span>
       {#if item && !mobile.current}<ImageActions {item} onremoved={removed} onnavigate={onclose} />{/if}
+      {#if item}
+        <IconButton
+          icon="favorite"
+          label={item.favorite ? 'Unfavorite' : 'Favorite'}
+          active={!!item.favorite}
+          onclick={() => library.favorite([item], !item.favorite)}
+        />
+      {/if}
+      {#if item && oncompare && !mobile.current}
+        <IconButton icon="compare" label="Compare with..." onclick={() => oncompare(item)} />
+      {/if}
+      {#if item && onsetcover}
+        <IconButton
+          icon={item.id === coverId ? 'bookmark_added' : 'bookmark_add'}
+          label={item.id === coverId ? 'Stack cover' : 'Set as stack cover'}
+          active={item.id === coverId}
+          onclick={() => item.id !== coverId && onsetcover(item)}
+        />
+      {/if}
       <IconButton
         icon={z > 1.05 ? 'zoom_out_map' : 'zoom_in'}
         label={z > 1.05 ? 'Fit to screen' : 'Zoom to 1:1'}
@@ -421,6 +475,7 @@
               src={s.it.url}
               alt=""
               draggable="false"
+              class:alpha={s.it.alpha}
               style="width: {s.it.width * f}px; height: {s.it.height * f}px; transform: translate3d({cur ? tx : 0}px, {cur ? ty : 0}px, 0) scale({cur ? z : 1}); transition: {anim && cur ? `transform ${dur + 40}ms var(--ease)` : 'none'}"
             />
           </div>
@@ -436,7 +491,7 @@
       <div class="film" bind:this={strip}>
         {#each win as it, i (it.id)}
           <button type="button" class="th" class:cur={winStart + i === index} aria-label="Show image {winStart + i + 1}" onclick={() => jump(winStart + i)}>
-            <img src={it.thumbUrl} alt="" loading="lazy" draggable="false" />
+            <img src={it.thumbUrl} alt="" loading="lazy" draggable="false" class:alpha={it.alpha} />
           </button>
         {/each}
       </div>
@@ -530,6 +585,15 @@
     transform-origin: center;
     user-select: none;
     -webkit-user-drag: none;
+  }
+  img.alpha {
+    background: var(--checker);
+  }
+  .albums {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
   }
   .nav {
     position: absolute;

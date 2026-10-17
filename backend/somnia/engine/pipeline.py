@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import random
 import threading
 from dataclasses import replace
@@ -90,6 +91,12 @@ def _detail_prompt(main: str, d: dict) -> str:
 
 def _base_request(p: dict, seed: int) -> SampleRequest:
     pag = p.get("pag") or {}
+    var = p.get("variation") or {}
+    vs = float(var.get("strength") or 0.0) if var.get("enabled") else 0.0
+    vseed = int(var.get("seed", -1)) if vs > 0 else None
+    if vseed is not None and vseed < 0:
+        vseed = random.randint(0, 2**32 - 1)
+        var["seed"] = vseed
     return SampleRequest(
         model=p["model"],
         prompt=p.get("prompt", ""),
@@ -108,6 +115,8 @@ def _base_request(p: dict, seed: int) -> SampleRequest:
         text_encoder=p.get("textEncoder") or None,
         pag_scale=float(pag.get("scale", 0.0)) if pag.get("enabled") else 0.0,
         cfg_rescale=float(p.get("cfgRescale") or 0.0),
+        variation_seed=vseed,
+        variation_strength=vs if vseed is not None else 0.0,
     )
 
 
@@ -149,8 +158,40 @@ def _base_sample(engine: Engine, req: SampleRequest, p: dict, ctx: RunContext) -
 def _labeled(ctx: RunContext, label: str | None) -> RunContext:
     base = ctx.progress
 
-    def progress(phase, step, total, preview=None, label_=None):
-        base(phase, step, total, preview, label_ or label)
+    def progress(phase, step, total, preview=None, label_=None, region=None):
+        base(phase, step, total, preview, label_ or label, region)
+
+    return replace(ctx, progress=progress)
+
+
+PREVIEW_MAX = 1024
+
+
+def _region_ctx(ctx: RunContext, canvas: Image.Image, box: tuple[int, int, int, int], mask: Image.Image | None = None) -> RunContext:
+    # previews of a crop are pasted into the whole image so clients see where it renders
+    W, H = canvas.size
+    s = min(1.0, PREVIEW_MAX / max(W, H))
+    small = canvas.convert("RGB")
+    if s < 1:
+        small = small.resize((max(1, round(W * s)), max(1, round(H * s))), Image.BILINEAR)
+    x0, y0, x1, y1 = box
+    sx, sy = round(x0 * s), round(y0 * s)
+    size = (max(1, round(x1 * s) - sx), max(1, round(y1 * s) - sy))
+    sm = mask.convert("L").resize(size, Image.BILINEAR) if mask is not None else None
+    region = {"x": x0 / W, "y": y0 / H, "w": (x1 - x0) / W, "h": (y1 - y0) / H}
+    base = ctx.progress
+    sent = False
+
+    def progress(phase, step, total, preview=None, label=None, region_=None):
+        nonlocal sent
+        if preview is not None:
+            frame = small.copy()
+            frame.paste(preview.convert("RGB").resize(size, Image.BILINEAR), (sx, sy), sm)
+            preview = frame
+        elif not sent:
+            preview = small
+        sent = True
+        base(phase, step, total, preview, label, region)
 
     return replace(ctx, progress=progress)
 
@@ -254,6 +295,86 @@ def _second_pass(engine: Engine, req: SampleRequest, sp: dict, images: list[Imag
     return out
 
 
+def _ramp(n: int, f: int, lo: bool, hi: bool) -> np.ndarray:
+    r = np.ones(n, np.float32)
+    f = min(f, n // 2)
+    if f > 0:
+        e = (np.arange(f, dtype=np.float32) + 0.5) / f
+        if lo:
+            r[:f] = np.minimum(r[:f], e)
+        if hi:
+            r[n - f :] = np.minimum(r[n - f :], e[::-1])
+    return r
+
+
+def _spans(size: int, tile: int, pad: int) -> list[int]:
+    if size <= tile:
+        return [0]
+    n = 1 + math.ceil((size - tile) / max(1, tile - pad))
+    return [round(k * (size - tile) / (n - 1)) for k in range(n)]
+
+
+def _tile_ctx(ctx: RunContext, k: int, n: int) -> RunContext:
+    base = ctx.progress
+    label = f"Tiled refine {k + 1}/{n}"
+
+    def progress(phase, step, total, preview=None, label_=None, region=None):
+        if phase == "refine" and total:
+            base(phase, k * total + step, n * total, preview, label, region)
+        else:
+            base(phase, step, total, preview, label, region)
+
+    return replace(ctx, progress=progress)
+
+
+def _tiled_refine(engine: Engine, req: SampleRequest, tc: dict, im: Image.Image, seed: int, ctx: RunContext) -> Image.Image:
+    # ultimate sd upscale style: img2img over overlapping tiles, pasted back with feathered edges
+    m = engine.size_multiple
+    im = im.convert("RGB")
+    W, H = im.size
+    tile = max(256, int(tc.get("tileSize", 1024)))
+    pad = max(0, int(tc.get("padding", 64)))
+    tw = max(m, min(tile, W) // m * m)
+    th = max(m, min(tile, H) // m * m)
+    xs, ys = _spans(W, tw, pad), _spans(H, th, pad)
+    n = len(xs) * len(ys)
+    out = im.copy()
+    k = 0
+    for y in ys:
+        for x in xs:
+            ctx.check()
+            box = (x, y, x + tw, y + th)
+            crop = out.crop(box)
+            ox = tw - (xs[1] - xs[0]) if len(xs) > 1 else 0
+            oy = th - (ys[1] - ys[0]) if len(ys) > 1 else 0
+            wx = _ramp(tw, min(pad, ox) if ox > 0 else 0, x > 0, x + tw < W)
+            wy = _ramp(th, min(pad, oy) if oy > 0 else 0, y > 0, y + th < H)
+            alpha = Image.fromarray((np.outer(wy, wx) * 255).round().astype(np.uint8), "L")
+            r = replace(
+                req,
+                init_images=[crop],
+                init_latents=None,
+                mask=None,
+                denoise=float(tc.get("denoise", 0.3)),
+                steps=int(tc.get("steps", 20)),
+                width=tw,
+                height=th,
+                batch_size=1,
+                seed=seed + k,
+                phase="refine",
+                variation_seed=None,
+                variation_strength=0.0,
+                keep_latents=False,
+                decode=True,
+            )
+            res = engine.sample(r, _region_ctx(_tile_ctx(ctx, k, n), out, box, alpha))[0].convert("RGB")
+            if res.size != crop.size:
+                res = res.resize(crop.size, Image.LANCZOS)
+            out.paste(Image.composite(res, crop, alpha), box[:2])
+            k += 1
+    return out
+
+
 def run(params: dict, ctx: RunContext) -> list[Image.Image]:
     p = params
     seed = int(p.get("seed", -1))
@@ -309,8 +430,9 @@ def run(params: dict, ctx: RunContext) -> list[Image.Image]:
                     mask = detailer.dilate(detailer.det_mask(im.size, det), int(d.get("dilate", 4)))
                     label = f"Detailer {det.get('label') or kind} {k + 1}/{len(found)}"
                     dctx = _labeled(ctx, label)
+                    area = {}
 
-                    def run_crop(crop, cm, i=i, dctx=dctx):
+                    def run_crop(crop, cm, i=i, dctx=dctx, area=area):
                         r = replace(
                             req,
                             prompt=_detail_prompt(req.prompt, d),
@@ -325,9 +447,14 @@ def run(params: dict, ctx: RunContext) -> list[Image.Image]:
                             seed=seed + i,
                             phase="detail",
                         )
-                        return engine.sample(r, dctx)[0]
+                        return engine.sample(r, _region_ctx(dctx, area["canvas"], area["box"], area["mask"]))[0]
 
-                    im = detailer.masked_inpaint(im, mask, run_crop, padding=int(d.get("padding", 32)), blur=int(d.get("blur", 4)))
+                    def on_box(box, feather, im=im, area=area):
+                        area.update(canvas=im, box=box, mask=feather)
+
+                    im = detailer.masked_inpaint(
+                        im, mask, run_crop, padding=int(d.get("padding", 32)), blur=int(d.get("blur", 4)), on_box=on_box
+                    )
                 out.append(im)
             images = out
             mem.flush()
@@ -346,6 +473,11 @@ def run(params: dict, ctx: RunContext) -> list[Image.Image]:
                 )
             images = out
             passes.release()
+            tc = upc.get("tiled") or {}
+            if tc.get("enabled"):
+                mem.flush()
+                images = [_tiled_refine(engine, req, tc, im, seed + i, ctx) for i, im in enumerate(images)]
+                mem.flush()
     except torch.OutOfMemoryError as e:
         mem.flush()
         raise RuntimeError("out of VRAM (close other GPU apps, lower resolution or enable lowVram)") from e

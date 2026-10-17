@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import store
+from . import net, store
 
 router = APIRouter()
 
@@ -33,6 +33,13 @@ class Hub:
             return
         loop.call_soon_threadsafe(self._dispatch, msg)
 
+    def kick_remote(self) -> None:
+        # lan password changed: drop lan sockets so they log in again
+        loop = self.loop
+        if loop is None or loop.is_closed():
+            return
+        loop.call_soon_threadsafe(lambda: [q.put_nowait(None) for q in list(self.clients) if getattr(q, "remote", False)])
+
     def _dispatch(self, msg: dict) -> None:
         t = msg.get("type")
         if t == "progress":
@@ -57,6 +64,7 @@ class Hub:
         return {
             "type": "snapshot",
             "queue": jobs.queue_list(),
+            "paused": jobs.paused(),
             "current": self.current,
             "recent": store.recent_gallery(20),
             "downloads": _downloads(),
@@ -70,12 +78,17 @@ hub = Hub()
 async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
     q: asyncio.Queue = asyncio.Queue()
+    q.remote = not net.is_loopback(ws.client.host if ws.client else None)
     q.put_nowait(hub.snapshot())
     hub.clients.add(q)
 
     async def sender() -> None:
         while True:
-            await ws.send_json(await q.get())
+            msg = await q.get()
+            if msg is None:
+                await ws.close(code=4401)
+                return
+            await ws.send_json(msg)
 
     async def receiver() -> None:
         while True:

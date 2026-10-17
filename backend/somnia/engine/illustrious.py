@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import logging
 import math
 import re
 import threading
@@ -15,8 +16,10 @@ from ..presets import ILLUSTRIOUS_SAMPLERS as SAMPLERS
 from ..presets import ILLUSTRIOUS_SCHEDULERS as SCHEDULERS
 from . import mem, previews
 from .base import Engine, RunContext, SampleRequest
+from .noise import slerp
 
 HF_CACHE = str(previews.HF_CACHE)
+log = logging.getLogger(__name__)
 
 
 
@@ -110,6 +113,45 @@ def parse_attention(text: str) -> list[tuple[str, float]]:
         else:
             out.append((t, w))
     return out
+
+
+_re_emb = re.compile(r"embedding:([^\s,()\[\]:]+)", re.I)
+_re_item = re.compile(r"^(\s*[(\[]*\s*)([^\s,()\[\]:]+)(\s*(?::\s*[+-]?[.\d]+\s*)?[)\]]*\s*)$")
+
+
+def find_embeddings(text: str, names: set[str], bare: set[str]) -> set[str]:
+    # `embedding:name` anywhere, or a comma separated item that is exactly an embedding name
+    found = {m.group(1).lower() for m in _re_emb.finditer(text) if m.group(1).lower() in names}
+    for piece in re.split(r"[,\n]", text):
+        m = _re_item.match(piece)
+        if m and m.group(2).lower() in bare:
+            found.add(m.group(2).lower())
+    return found
+
+
+def expand_embeddings(text: str, sub: dict[str, str], bare: set[str]) -> str:
+    if not sub:
+        return text
+    text = _re_emb.sub(lambda m: sub.get(m.group(1).lower()) or m.group(0), text)
+    parts = re.split(r"([,\n])", text)
+    for i in range(0, len(parts), 2):
+        m = _re_item.match(parts[i])
+        if m and m.group(2).lower() in bare and sub.get(m.group(2).lower()):
+            parts[i] = m.group(1) + sub[m.group(2).lower()] + m.group(3)
+    return "".join(parts)
+
+
+def _read_embedding(path) -> dict[str, torch.Tensor] | None:
+    path = str(path)
+    if path.lower().endswith(".safetensors"):
+        from safetensors.torch import load_file
+
+        sd = load_file(path)
+    else:
+        sd = torch.load(path, map_location="cpu", weights_only=True)
+    if not isinstance(sd, dict) or "clip_l" not in sd or "clip_g" not in sd:
+        return None
+    return {"clip_l": sd["clip_l"], "clip_g": sd["clip_g"]}
 
 
 _fix_vae = None
@@ -226,6 +268,8 @@ class _Loaded:
     loras: dict[str, str] = field(default_factory=dict)
     offload: bool = False
     te: list = field(default_factory=list)
+    # lowercase embedding name -> space separated tokens ("" when it failed to load)
+    embeds: dict[str, str] = field(default_factory=dict)
 
 
 class IllustriousEngine(Engine):
@@ -358,6 +402,41 @@ class IllustriousEngine(Engine):
         if drop:
             mem.flush()
 
+    def _embeddings(self, ld: _Loaded, texts: list[str], ctx: RunContext) -> tuple[dict[str, str], set[str]]:
+        from .. import models
+
+        table = {}
+        bare = set()
+        for m in models.list_models("embedding"):
+            n = m["path"].replace("\\", "/").rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+            table.setdefault(n, m)
+            if m.get("family") == "illustrious":
+                bare.add(n)
+        need = set()
+        for t in texts:
+            need |= find_embeddings(t, set(table), bare)
+        pipe = ld.pipe
+        for n in sorted(need - set(ld.embeds)):
+            ld.embeds[n] = ""
+            try:
+                sd = _read_embedding(ctx.resolve(table[n]["id"]))
+                if sd is None:
+                    log.warning("embedding %s has no clip_l/clip_g, skipped", n)
+                    continue
+                k = len(ld.embeds)
+                toks = [f"<ti{k}v{j}>" for j in range(sd["clip_l"].shape[0])]
+                if sd["clip_g"].shape[0] != len(toks):
+                    continue
+                pipe.load_textual_inversion(sd["clip_l"], token=toks, text_encoder=pipe.text_encoder, tokenizer=pipe.tokenizer)
+                pipe.load_textual_inversion(sd["clip_g"], token=toks, text_encoder=pipe.text_encoder_2, tokenizer=pipe.tokenizer_2)
+                ids = pipe.tokenizer.convert_tokens_to_ids(toks)
+                if ids != pipe.tokenizer_2.convert_tokens_to_ids(toks):
+                    raise RuntimeError("tokenizer ids diverged")
+                ld.embeds[n] = " ".join(toks)
+            except Exception:
+                log.exception("failed to load embedding %s", n)
+        return {n: ld.embeds[n] for n in need if ld.embeds.get(n)}, bare
+
     def _chunks(self, tok, text: str) -> list[tuple[list[int], list[float]]]:
         comma = tok.convert_tokens_to_ids(",</w>")
         chunks: list[tuple[list[int], list[float]]] = []
@@ -416,7 +495,7 @@ class IllustriousEngine(Engine):
 
     def encode(self, ld: _Loaded, prompt: str, negative: str, clip_skip: int):
         layer = max(2, int(clip_skip or 2))
-        key = (prompt, negative, layer, tuple(sorted(ld.loras.items())))
+        key = (prompt, negative, layer, tuple(sorted(ld.loras.items())), tuple(sorted(ld.embeds.items())))
         hit = self._cond.get(key)
         if hit is not None:
             return hit
@@ -458,6 +537,16 @@ class IllustriousEngine(Engine):
         p.set_progress_bar_config(disable=True)
         return p
 
+    def _variation_noise(self, base, req: SampleRequest, gens, n: int, w: int, h: int) -> torch.Tensor:
+        from diffusers.utils.torch_utils import randn_tensor
+
+        # same draw as diffusers prepare_latents, so the pipeline's own generator use stays identical
+        shape = (n, base.unet.config.in_channels, h // base.vae_scale_factor, w // base.vae_scale_factor)
+        main = randn_tensor(shape, generator=gens, device=torch.device("cpu"), dtype=torch.float16)
+        vg = [torch.Generator("cpu").manual_seed(int(req.variation_seed) + i) for i in range(n)]
+        var = randn_tensor(shape, generator=vg, device=torch.device("cpu"), dtype=torch.float16)
+        return slerp(main, var, float(req.variation_strength))
+
     def sample(self, req: SampleRequest, ctx: RunContext) -> list[Image.Image]:
         with self._lock:
             return self._sample(req, ctx)
@@ -469,7 +558,10 @@ class IllustriousEngine(Engine):
         base = ld.pipe
         ctx.check()
         ctx.progress("encode", 0, 1, None)
-        pe, pp, ne, npool = self.encode(ld, req.prompt, req.negative, req.clip_skip)
+        sub, bare = self._embeddings(ld, [req.prompt, req.negative], ctx)
+        prompt = expand_embeddings(req.prompt, sub, bare)
+        negative = expand_embeddings(req.negative, sub, bare)
+        pe, pp, ne, npool = self.encode(ld, prompt, negative, req.clip_skip)
         self.last_latents = None
 
         init = req.init_images
@@ -556,6 +648,8 @@ class IllustriousEngine(Engine):
             kw["pag_scale"] = float(req.pag_scale)
         if kind == "txt":
             kw.update(width=w, height=h)
+            if req.variation_seed is not None and phase == "sample":
+                kw["latents"] = self._variation_noise(base, req, gens, n, w, h)
         elif kind == "img":
             img = lat_in.to("cuda", torch.float16) if lat_in is not None else init
             kw.update(image=img, strength=denoise)

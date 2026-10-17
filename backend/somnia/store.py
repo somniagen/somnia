@@ -24,6 +24,7 @@ def _conn() -> sqlite3.Connection:
         _db_path = path
         _db.execute("create table if not exists prompts (id text primary key, data text not null)")
         _db.execute("create table if not exists gallery (id text primary key, created integer not null, data text not null)")
+        _db.execute("create table if not exists grids (id text primary key, created integer not null, data text not null)")
         _db.execute("create index if not exists gallery_created on gallery (created desc)")
         cols = {r[1] for r in _db.execute("pragma table_info(gallery)")}
         if "stack" not in cols:
@@ -136,23 +137,161 @@ def _with_stacks(c: sqlite3.Connection, items: list[dict]) -> list[dict]:
         n = counts.get(it["id"], 0)
         it["stackCount"] = n
         if n:
-            r = c.execute("select data from gallery where stack=? order by created desc, rowid desc limit 1", (it["id"],)).fetchone()
-            it["stackCover"] = json.loads(r[0])["thumbUrl"] if r else None
+            cover = _cover(c, it)
+            it["stackCover"] = cover["thumbUrl"] if cover else None
+            it["stackCoverId"] = cover["id"] if cover else None
+            it["stackCoverAlpha"] = bool(cover and cover.get("alpha"))
+            it["stackCoverItem"] = None if cover is it else cover
     return items
 
 
+def _cover(c: sqlite3.Connection, root: dict) -> dict | None:
+    # the chosen cover when it is still in the stack, else the newest child
+    cid = root.get("coverId")
+    if cid == root["id"]:
+        return root
+    r = None
+    if cid:
+        r = c.execute("select data from gallery where id=? and stack=?", (cid, root["id"])).fetchone()
+    if not r:
+        r = c.execute("select data from gallery where stack=? order by created desc, rowid desc limit 1", (root["id"],)).fetchone()
+    return json.loads(r[0]) if r else None
+
+
+def set_cover(gid: str) -> dict | None:
+    # makes a stack member its root's cover and returns the root with stack fields
+    with _lock:
+        c = _conn()
+        r = c.execute("select stack from gallery where id=?", (gid,)).fetchone()
+        if not r:
+            return None
+        root = r[0] or gid
+        row = c.execute("select data from gallery where id=?", (root,)).fetchone()
+        if not row:
+            return None
+        d = json.loads(row[0])
+        d["coverId"] = gid
+        c.execute("update gallery set data=? where id=?", (json.dumps(d), root))
+        c.commit()
+        return _with_stacks(c, [d])[0]
+
+
+def _edit_items(c: sqlite3.Connection, ids: list[str], fn) -> list[dict]:
+    # applies fn to each stored item dict, saving the ones it reports as changed
+    out = []
+    for gid in dict.fromkeys(ids):
+        r = c.execute("select data from gallery where id=?", (gid,)).fetchone()
+        if not r:
+            continue
+        d = json.loads(r[0])
+        if fn(d):
+            c.execute("update gallery set data=? where id=?", (json.dumps(d), gid))
+        out.append(d)
+    return out
+
+
+def set_favorite(ids: list[str], fav: bool) -> list[dict]:
+    def apply(d: dict) -> bool:
+        if bool(d.get("favorite")) == fav:
+            return False
+        if fav:
+            d["favorite"] = True
+        else:
+            d.pop("favorite", None)
+        return True
+
+    with _lock:
+        c = _conn()
+        out = _edit_items(c, ids, apply)
+        c.commit()
+    return out
+
+
+def album_name(name: str) -> str:
+    return " ".join(str(name).split())[:80]
+
+
+def edit_albums(ids: list[str], album: str, add: bool) -> list[dict]:
+    album = album_name(album)
+
+    def apply(d: dict) -> bool:
+        cur = list(d.get("albums") or [])
+        if (album in cur) == add:
+            return False
+        cur = [*cur, album] if add else [a for a in cur if a != album]
+        if cur:
+            d["albums"] = cur
+        else:
+            d.pop("albums", None)
+        return True
+
+    with _lock:
+        c = _conn()
+        out = _edit_items(c, ids, apply) if album else []
+        c.commit()
+    return out
+
+
+def _album_ids(c: sqlite3.Connection, album: str) -> list[str]:
+    return [r[0] for r in c.execute(
+        "select distinct gallery.id from gallery, json_each(gallery.data, '$.albums') where json_each.value = ?", (album,)
+    )]
+
+
+def rename_album(old: str, new: str) -> int:
+    new = album_name(new)
+
+    def apply(d: dict) -> bool:
+        cur = [new if a == old else a for a in d.get("albums") or []]
+        d["albums"] = list(dict.fromkeys(cur))
+        return True
+
+    with _lock:
+        c = _conn()
+        out = _edit_items(c, _album_ids(c, old), apply) if new else []
+        c.commit()
+    return len(out)
+
+
+def delete_album(album: str) -> int:
+    def apply(d: dict) -> bool:
+        cur = [a for a in d.get("albums") or [] if a != album]
+        if cur:
+            d["albums"] = cur
+        else:
+            d.pop("albums", None)
+        return True
+
+    with _lock:
+        c = _conn()
+        out = _edit_items(c, _album_ids(c, album), apply)
+        c.commit()
+    return len(out)
+
+
+def list_albums() -> list[dict]:
+    # cover is the thumb of the newest image in the album
+    with _lock:
+        rows = _conn().execute(
+            "select j.value, count(*), (select json_extract(g2.data, '$.thumbUrl') from gallery g2, json_each(g2.data, '$.albums') j2"
+            " where j2.value = j.value order by g2.created desc limit 1)"
+            " from gallery g, json_each(g.data, '$.albums') j group by j.value order by lower(j.value)"
+        ).fetchall()
+    return [{"name": n, "count": k, "cover": cov} for n, k, cov in rows]
+
+
 def list_gallery(cursor: str | None = None, limit: int = 40) -> tuple[list[dict], str | None]:
-    # roots only, ordered by their latest stack activity
-    q = "select coalesce(sort, created), rowid, data from gallery where stack is null"
+    # roots only, ordered by their own creation time so adding to a stack does not move it
+    q = "select created, rowid, data from gallery where stack is null"
     args: list = []
     if cursor:
         try:
             key, _, rid = cursor.partition(":")
             args += [int(key), int(rid or 0)]
-            q += " and (coalesce(sort, created), rowid) < (?, ?)"
+            q += " and (created, rowid) < (?, ?)"
         except ValueError:
             args = []
-    q += " order by coalesce(sort, created) desc, rowid desc limit ?"
+    q += " order by created desc, rowid desc limit ?"
     args.append(limit + 1)
     with _lock:
         c = _conn()
@@ -175,7 +314,9 @@ _SORTS = {
 }
 
 
-def search_gallery(q: str = "", model: str = "", sort: str = "newest", offset: int = 0, limit: int = 60) -> tuple[list[dict], str | None]:
+def search_gallery(
+    q: str = "", model: str = "", sort: str = "newest", offset: int = 0, limit: int = 60, fav: bool = False, album: str = ""
+) -> tuple[list[dict], str | None]:
     # filtered or re-sorted listing with offset paging; stacks are kept only when nothing is filtered
     where: list[str] = []
     args: list = []
@@ -191,6 +332,11 @@ def search_gallery(q: str = "", model: str = "", sort: str = "newest", offset: i
     if model:
         where.append("json_extract(data, '$.params.model') = ?")
         args.append(model)
+    if fav:
+        where.append("json_extract(data, '$.favorite') = 1")
+    if album:
+        where.append("exists (select 1 from json_each(data, '$.albums') where value = ?)")
+        args.append(album)
     stacked = not where
     if stacked:
         where.append("stack is null")
@@ -233,13 +379,58 @@ def get_gallery(gid: str) -> dict | None:
     return json.loads(r[0]) if r else None
 
 
-def _set_stack(c: sqlite3.Connection, gid: str, stack: str | None) -> None:
+def _set_stack(c: sqlite3.Connection, gid: str, stack: str | None, cover: str | None = None) -> None:
     r = c.execute("select data from gallery where id=?", (gid,)).fetchone()
     if not r:
         return
     d = json.loads(r[0])
     d["stackId"] = stack
+    if cover:
+        d["coverId"] = cover
     c.execute("update gallery set stack=?, data=? where id=?", (stack, json.dumps(d), gid))
+
+
+def stack_under(root: str, ids: list[str]) -> None:
+    # files existing items (and their own stacks) under root
+    with _lock:
+        c = _conn()
+        for gid in ids:
+            if gid == root:
+                continue
+            for (k,) in c.execute("select id from gallery where stack=?", (gid,)).fetchall():
+                _set_stack(c, k, root)
+            _set_stack(c, gid, root)
+        c.execute(
+            "update gallery set sort = (select max(created) from gallery where id=? or stack=?) where id=?",
+            (root, root, root),
+        )
+        c.commit()
+
+
+def save_grid(g: dict) -> None:
+    with _lock:
+        c = _conn()
+        c.execute("insert or replace into grids (id, created, data) values (?, ?, ?)", (g["id"], g["createdAt"], json.dumps(g)))
+        c.commit()
+
+
+def get_grid(gid: str) -> dict | None:
+    with _lock:
+        r = _conn().execute("select data from grids where id=?", (gid,)).fetchone()
+    return json.loads(r[0]) if r else None
+
+
+def list_grids(n: int = 20) -> list[dict]:
+    with _lock:
+        rows = _conn().execute("select data from grids order by created desc limit ?", (n,)).fetchall()
+    return [json.loads(r[0]) for r in rows]
+
+
+def delete_grid(gid: str) -> None:
+    with _lock:
+        c = _conn()
+        c.execute("delete from grids where id=?", (gid,))
+        c.commit()
 
 
 def delete_gallery(gid: str) -> None:
@@ -247,10 +438,12 @@ def delete_gallery(gid: str) -> None:
     with _lock:
         c = _conn()
         kids = [r[0] for r in c.execute("select id from gallery where stack=? order by created, rowid", (gid,))]
+        r = c.execute("select data from gallery where id=?", (gid,)).fetchone()
+        cover = json.loads(r[0]).get("coverId") if r else None
         c.execute("delete from gallery where id=?", (gid,))
         if kids:
             head, rest = kids[0], kids[1:]
-            _set_stack(c, head, None)
+            _set_stack(c, head, None, cover if cover in rest else None)
             for k in rest:
                 _set_stack(c, k, head)
             c.execute(

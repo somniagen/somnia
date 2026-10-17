@@ -2,6 +2,7 @@
   import type { Component } from 'svelte'
   import GalleryView from '$features/gallery/GalleryView.svelte'
   import GenerateView from '$features/generate/GenerateView.svelte'
+  import GridView from '$features/grid/GridView.svelte'
   import InpaintView from '$features/inpaint/InpaintView.svelte'
   import ModelManager from '$features/models/ModelManager.svelte'
   import SettingsView from '$features/settings/SettingsView.svelte'
@@ -43,6 +44,8 @@
     {/if}
   {:else if route === '#/inpaint'}
     <InpaintView />
+  {:else if route === '#/grid'}
+    <GridView />
   {:else if route === '#/gallery'}
     <GalleryView />
   {:else if route === '#/models'}

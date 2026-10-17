@@ -41,11 +41,14 @@ class SampleRequest:
     # keep the final latents in engine.last_latents (cpu); decode=False skips vae decoding and returns []
     keep_latents: bool = False
     decode: bool = True
+    # variation seed: base noise is slerped toward noise from this seed (only on the base pass)
+    variation_seed: int | None = None
+    variation_strength: float = 0.0
 
 
 @dataclass
 class RunContext:
-    # progress(phase, step, total, preview, label=None) where preview is a PIL image or None
+    # progress(phase, step, total, preview, label=None, region=None) where preview is a PIL image or None
     progress: Callable[..., None]
     is_cancelled: Callable[[], bool]
     resolve: Callable[[str], Path]

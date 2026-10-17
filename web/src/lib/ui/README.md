@@ -29,7 +29,7 @@ Items lists (`Select`, `WheelPicker`, `Segmented`, `Tabs`) take plain values or 
 | `Surface` | `level` 0-4, `padding`, `radius`, `as`, `interactive`, `bordered` |
 | `Card` | Surface + `title`, `icon`, `actions` snippet |
 | `Field` | `label`, `info` (InfoTip), `hint`, `error`, `inline`, `trailing` snippet, `children(id)` snippet gets the control id |
-| `ImageTile` | `src`, `aspect` (number or `'2:3'`), `fit`, `bind:selected`, `selectable`, `onclick`, `actions` / `badge` snippets |
+| `ImageTile` | `src`, `aspect` (number or `'2:3'`), `fit`, `bind:selected`, `selectable`, `checker` (transparency backdrop), `onclick`, `actions` / `badge` snippets |
 | `Dropzone` | `onfiles(files)`, `accept`, `multiple`, `paste` (window paste), `compact`, `title`, `hint`, children(over) |
 | `Chip` | `label`, `color` (css color or token like `'--tag-artist'`), `locked`, `removable` + `onremove`, `selected`, `onclick`, `size` |
 | `Menu` | `items: MenuItem[]` (`label icon danger disabled shortcut checked onselect` or `{ separator: true }`), `trigger` snippet `({ open, toggle })` or `anchor` + `bind:open` (context menus: anchor `{x,y}`) |

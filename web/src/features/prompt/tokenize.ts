@@ -83,6 +83,7 @@ function pushRun(out: Token[], s: string, start: number) {
   if (body) {
     const at = start + lead
     if (body === 'BREAK') out.push({ kind: 'break', text: body, start: at })
+    else if (/^embedding:\S+$/i.test(body)) out.push({ kind: 'lora', text: body, start: at })
     else out.push({ kind: 'tag', text: body, start: at, tag: normalizeTag(body) })
   }
   const trail = s.length - lead - body.length

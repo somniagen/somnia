@@ -1,6 +1,6 @@
 export type Family = 'illustrious' | 'anima'
 
-export type ModelKind = 'checkpoint' | 'lora' | 'vae' | 'text_encoder' | 'upscaler' | 'detector'
+export type ModelKind = 'checkpoint' | 'lora' | 'vae' | 'text_encoder' | 'upscaler' | 'detector' | 'embedding'
 
 export interface LoraRef {
   id: string
@@ -34,10 +34,27 @@ export interface DetailerPass {
   appendPrompt?: boolean
 }
 
+export interface TiledRefine {
+  enabled: boolean
+  denoise: number
+  steps: number
+  tileSize: number
+  padding: number
+}
+
 export interface FinalUpscale {
   enabled: boolean
   upscaler: string
   scale: number
+  // img2img refine of the upscaled image tile by tile
+  tiled?: TiledRefine | null
+}
+
+export interface Variation {
+  enabled: boolean
+  // -1 = random per job
+  seed: number
+  strength: number
 }
 
 export interface InitImage {
@@ -77,6 +94,8 @@ export interface GenParams {
   stackId?: string | null
   // the editor segments behind prompt/negative, so reusing an image restores its boilerplate
   segments?: { positive: PromptSegment[]; negative: PromptSegment[] } | null
+  // variation seed: the base noise is blended toward noise from variation.seed
+  variation?: Variation | null
 }
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
@@ -90,9 +109,52 @@ export interface Job {
   finishedAt: number | null
   images: GalleryItem[]
   error: string | null
+  // queues a copy of itself when it finishes, until cancelled
+  repeat?: boolean
+  // set on jobs queued by an x/y/z grid
+  grid?: { id: string; x: number; y: number; z: number } | null
 }
 
-export type Phase = 'load' | 'encode' | 'sample' | 'second' | 'detail' | 'upscale' | 'decode' | 'save'
+export interface GridAxisValue {
+  label: string
+  // deep merged into the base params; "$sr": [search, replace] edits the prompts, "$lora": { id, weight } sets one lora
+  patch: Record<string, unknown>
+}
+
+export interface GridAxis {
+  kind: string
+  label: string
+  values: GridAxisValue[]
+}
+
+export type GridStatus = 'running' | 'composing' | 'done' | 'failed'
+
+export interface GridCell {
+  x: number
+  y: number
+  z: number
+  jobId: string | null
+  // stays queued while the job runs; compare jobId with the running job
+  status: 'queued' | 'done' | 'error' | 'cancelled'
+  item: GalleryItem | null
+  error: string | null
+}
+
+export interface Grid {
+  id: string
+  createdAt: number
+  finishedAt: number | null
+  status: GridStatus
+  base: GenParams
+  // x, then optional y and z
+  axes: GridAxis[]
+  // z-major, then rows (y), then columns (x)
+  cells: GridCell[]
+  // composed image per z value (stack roots), filled once every cell finished
+  images: GalleryItem[]
+}
+
+export type Phase = 'load' | 'encode' | 'sample' | 'second' | 'detail' | 'upscale' | 'refine' | 'decode' | 'save'
 
 export interface Progress {
   jobId: string
@@ -103,6 +165,15 @@ export interface Progress {
   etaSec: number | null
   preview: string | null
   label?: string | null
+  // area being rendered (detailer, tiled refine), fractions of the whole image
+  region?: Region | null
+}
+
+export interface Region {
+  x: number
+  y: number
+  w: number
+  h: number
 }
 
 export interface GalleryItem {
@@ -122,6 +193,24 @@ export interface GalleryItem {
   // only on /api/gallery roots
   stackCount?: number
   stackCover?: string | null
+  stackCoverId?: string | null
+  stackCoverAlpha?: boolean
+  // the whole cover item, shown for the stack in tiles and the lightbox
+  stackCoverItem?: GalleryItem | null
+  // chosen stack cover, only on roots
+  coverId?: string | null
+  // composed x/y/z grid image
+  grid?: { id: string; z: number } | null
+  favorite?: boolean
+  albums?: string[]
+  // has transparency (background removed)
+  alpha?: boolean
+}
+
+export interface GalleryAlbum {
+  name: string
+  count: number
+  cover: string | null
 }
 
 export interface LocalModel {
@@ -144,6 +233,26 @@ export interface CivitaiLocalInfo {
   baseModel: string
   trainedWords: string[]
   nsfw: boolean
+  // newer civitai version with the same base model, not installed (background update check)
+  updateVersionId?: number | null
+  updateVersionName?: string | null
+}
+
+// per-model defaults stored on the server; checkpoints keep sampling params, loras a weight
+export type ModelDefaultParams = Partial<
+  Pick<GenParams, 'steps' | 'cfg' | 'sampler' | 'scheduler' | 'clipSkip' | 'cfgRescale' | 'pag' | 'vae' | 'width' | 'height'>
+>
+
+export interface ModelDefaults {
+  params?: ModelDefaultParams
+  weight?: number
+  updatedAt: number
+}
+
+export interface IdentifyState {
+  running: boolean
+  done: number
+  total: number
 }
 
 export interface CivitaiFile {
@@ -289,12 +398,18 @@ export interface UploadResult {
 
 export interface Settings {
   lanEnabled: boolean
+  // "****" when a password is set, "" when not; patch a plain value to set, "" to clear
+  lanPassword: string
+  // tls cert and key paths, https is used after a restart when both exist
+  httpsCert: string
+  httpsKey: string
   port: number
   modelRoots: string[]
   downloadRoot: string
   outputDir: string
   civitaiToken: string
   showNsfw: boolean
+  autoIdentify: boolean
   previewEvery: number
   keepModelsLoaded: boolean
   lowVram: boolean
@@ -323,6 +438,17 @@ export interface NetInfo {
   urls: string[]
 }
 
+export interface AuthStatus {
+  // a lan password is set and this client is not on the server machine
+  required: boolean
+  ok: boolean
+}
+
+export interface PushSubscriptionJson {
+  endpoint: string
+  keys: { p256dh: string; auth: string }
+}
+
 export interface FamilyInfo {
   family: Family
   defaults: GenParams
@@ -337,6 +463,8 @@ export interface Presets {
 
 export interface Snapshot {
   queue: Job[]
+  // the worker holds off starting queued jobs (the running one finishes)
+  paused: boolean
   current: Progress | null
   recent: GalleryItem[]
   downloads: Download[]
@@ -344,12 +472,16 @@ export interface Snapshot {
 
 export type WsMessage =
   | ({ type: 'snapshot' } & Snapshot)
-  | { type: 'queue'; queue: Job[] }
+  | { type: 'queue'; queue: Job[]; paused: boolean }
   | ({ type: 'progress' } & Progress)
   | { type: 'done'; job: Job }
   | { type: 'error'; jobId: string; message: string }
   | { type: 'download'; download: Download }
   | { type: 'models_changed' }
+  | ({ type: 'identify' } & IdentifyState)
+  | { type: 'model_defaults'; defaults: Record<string, ModelDefaults> }
   | { type: 'settings'; settings: Settings }
   // created or re-saved outside a job (external editor saves)
   | { type: 'gallery_item'; item: GalleryItem }
+  | { type: 'grid'; grid: Grid }
+  | { type: 'grid_removed'; id: string }

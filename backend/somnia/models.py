@@ -20,6 +20,7 @@ KIND_FOLDERS: dict[str, list[str]] = {
     "text_encoder": ["text_encoders"],
     "upscaler": ["upscale_models"],
     "detector": ["ultralytics"],
+    "embedding": ["embeddings"],
 }
 EXTS = {".safetensors", ".ckpt", ".pt", ".pth", ".gguf"}
 PREVIEW_EXTS = [".preview.png", ".preview.jpeg", ".preview.jpg", ".preview.webp", ".png", ".jpeg", ".jpg", ".webp"]
@@ -218,6 +219,8 @@ def _kind_of_ext(kind: str, path: Path, rel: str) -> str | None:
         return None
     if kind in ("upscaler",):
         return kind
+    if kind == "embedding":
+        return kind if ext in (".safetensors", ".pt") else None
     if kind in ("checkpoint", "lora", "vae", "text_encoder"):
         return kind if ext in (".safetensors", ".ckpt", ".pt", ".pth") else None
     return None
@@ -273,15 +276,18 @@ def _scan() -> tuple[dict[str, dict], dict[str, Path]]:
                     ent = cache.get(key)
                     if not ent or ent.get("mtime") != st.st_mtime or ent.get("size") != st.st_size:
                         fam = None
-                        if p.suffix.lower() == ".safetensors" and kind in ("checkpoint", "lora", "vae", "text_encoder"):
+                        if p.suffix.lower() == ".safetensors" and kind in ("checkpoint", "lora", "vae", "text_encoder", "embedding"):
                             h = read_header(p)
-                            fam = _family_from_header(h, kind) if h is not None and kind in ("checkpoint", "lora") else None
+                            if kind == "embedding":
+                                fam = "illustrious" if h is not None and "clip_l" in h and "clip_g" in h else None
+                            else:
+                                fam = _family_from_header(h, kind) if h is not None and kind in ("checkpoint", "lora") else None
                         ent = {"mtime": st.st_mtime, "size": st.st_size, "family": fam}
                         cache[key] = ent
                         _cache_dirty = True
                     civ = read_sidecar(p)
                     fam = ent.get("family")
-                    if fam is None and civ and kind in ("checkpoint", "lora"):
+                    if fam is None and civ and kind in ("checkpoint", "lora", "embedding"):
                         fam = _family_from_base(civ.get("baseModel"))
                     prev = _find_preview(p)
                     out[mid] = {

@@ -91,6 +91,7 @@ def masked_inpaint(
     blur: int = 4,
     target: int = 1024,
     base: Image.Image | None = None,
+    on_box: Callable[[tuple[int, int, int, int], Image.Image], None] | None = None,
 ) -> Image.Image:
     img = img.convert("RGB")
     base = (base or img).convert("RGB")
@@ -108,10 +109,12 @@ def masked_inpaint(
     box = (x0, y0, x1, y1)
     crop = img.crop(box).resize((tw, th), Image.LANCZOS)
     cm = mask.crop(box).resize((tw, th), Image.LANCZOS)
-    res = run(crop, cm).convert("RGB").resize((bw, bh), Image.LANCZOS)
     feather = mask.crop(box)
     if blur > 0:
         feather = feather.filter(ImageFilter.GaussianBlur(blur))
+    if on_box is not None:
+        on_box(box, feather)
+    res = run(crop, cm).convert("RGB").resize((bw, bh), Image.LANCZOS)
     out = base.copy()
     out.paste(Image.composite(res, base.crop(box), feather), box)
     return out

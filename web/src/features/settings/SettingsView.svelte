@@ -7,6 +7,8 @@
   import type { NetInfo, Settings } from '$lib/types'
   import { Button, Card, EmptyState, Field, IconButton, InfoTip, NumberField, Select, Skeleton, Toggle, mobile, toast } from '$lib/ui'
   import Logo from '$features/shell/Logo.svelte'
+  import LanSecurity from './LanSecurity.svelte'
+  import NotificationsCard from './NotificationsCard.svelte'
 
   let s = $state<Settings | null>(null)
   let net = $state<NetInfo | null>(null)
@@ -184,9 +186,12 @@
           {:else}
             <div class="muted">No network addresses found</div>
           {/if}
+          <LanSecurity settings={s} {readonly} {local} {save} />
         {/if}
       </div>
     </Card>
+
+    <NotificationsCard />
 
     <Card title="Storage" icon="folder">
       <div class="stack">
@@ -291,6 +296,10 @@
         <div class="line">
           <span class="lbl">Show NSFW <InfoTip text="Include adult content when browsing Civitai." /></span>
           <Toggle checked={s.showNsfw} disabled={readonly} aria-label="Show NSFW" onchange={(v) => save({ showNsfw: v })} />
+        </div>
+        <div class="line">
+          <span class="lbl">Identify models <InfoTip text="Hash new local models in the background to find them on Civitai (names, trigger words), and check daily for newer versions." /></span>
+          <Toggle checked={s.autoIdentify} disabled={readonly} aria-label="Identify models" onchange={(v) => save({ autoIdentify: v })} />
         </div>
       </div>
     </Card>

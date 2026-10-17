@@ -7,11 +7,12 @@ export const phaseNames: Record<Phase, string> = {
   second: 'Second pass',
   detail: 'Detailer',
   upscale: 'Upscaling',
+  refine: 'Refining',
   decode: 'Decoding',
   save: 'Saving',
 }
 
-const stepped: Phase[] = ['sample', 'second', 'detail', 'upscale']
+const stepped: Phase[] = ['sample', 'second', 'detail', 'upscale', 'refine']
 
 export function hasSteps(p: Progress | null) {
   return !!p && p.total > 0 && stepped.includes(p.phase)

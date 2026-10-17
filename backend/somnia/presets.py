@@ -115,7 +115,13 @@ def illustrious_defaults() -> dict:
             "model": None,
         },
         "detailers": [_detailer()],
-        "upscale": {"enabled": False, "upscaler": _upscaler(["animesharp", "ultrasharp", "anime6b"]), "scale": 2.0},
+        "upscale": {
+            "enabled": False,
+            "upscaler": _upscaler(["animesharp", "ultrasharp", "anime6b"]),
+            "scale": 2.0,
+            "tiled": {"enabled": False, "denoise": 0.3, "steps": 20, "tileSize": 1024, "padding": 64},
+        },
+        "variation": {"enabled": False, "seed": -1, "strength": 0.1},
         "init": None,
     }
 

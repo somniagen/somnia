@@ -1,8 +1,8 @@
-.venv/
+/.venv/
 __pycache__/
 node_modules/
-web/dist/
-data/
-models/
-outputs/
+/web/dist/
+/data/
+/models/
+/outputs/
 *.pyc

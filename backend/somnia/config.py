@@ -23,12 +23,19 @@ def _default_roots() -> list[str]:
 @dataclass
 class Settings:
     lanEnabled: bool = False
+    # salted scrypt hash, see auth.py; never sent to clients
+    lanPassword: str = ""
+    # tls cert and key paths (tailscale cert, mkcert); https is used when both exist
+    httpsCert: str = ""
+    httpsKey: str = ""
     port: int = 7865
     modelRoots: list[str] = field(default_factory=_default_roots)
     downloadRoot: str = str(ROOT / "models")
     outputDir: str = str(ROOT / "outputs")
     civitaiToken: str = ""
     showNsfw: bool = False
+    # hash new local models in the background and look them up on civitai
+    autoIdentify: bool = True
     previewEvery: int = 2
     keepModelsLoaded: bool = True
     lowVram: bool = False

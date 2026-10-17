@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+from pathlib import Path
 
 
 def lan_ips() -> list[str]:
@@ -25,8 +26,21 @@ def lan_ips() -> list[str]:
     return out
 
 
+def tls_files() -> tuple[str, str] | None:
+    from . import config
+
+    s = config.settings()
+    if s.httpsCert and s.httpsKey and Path(s.httpsCert).is_file() and Path(s.httpsKey).is_file():
+        return s.httpsCert, s.httpsKey
+    return None
+
+
+# set by __main__ when uvicorn serves tls
+SCHEME = "http"
+
+
 def lan_urls(port: int) -> list[str]:
-    return [f"http://{ip}:{port}" for ip in lan_ips()]
+    return [f"{SCHEME}://{ip}:{port}" for ip in lan_ips()]
 
 
 def is_loopback(host: str | None) -> bool:

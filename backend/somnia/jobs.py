@@ -22,6 +22,11 @@ _cond = threading.Condition()
 _jobs: list[dict] = []
 _cancel: set[str] = set()
 _worker: threading.Thread | None = None
+_paused = False
+# repeating jobs: job id -> params the next copy is queued from
+_repeat: dict[str, dict] = {}
+# called with the finished job dict (done, error or cancelled) from the worker thread
+on_finish: list = []
 
 
 def queue_list() -> list[dict]:
@@ -29,35 +34,111 @@ def queue_list() -> list[dict]:
         return copy.deepcopy(_jobs)
 
 
+def paused() -> bool:
+    return _paused
+
+
 def _broadcast_queue() -> None:
-    hub.broadcast({"type": "queue", "queue": queue_list()})
+    hub.broadcast({"type": "queue", "queue": queue_list(), "paused": _paused})
 
 
-def submit(params: dict, count: int = 1) -> list[str]:
-    count = max(1, int(count))
+def set_paused(value: bool) -> bool:
+    global _paused
+    with _cond:
+        _paused = bool(value)
+        _cond.notify_all()
+    _broadcast_queue()
+    return _paused
+
+
+def _rand() -> int:
+    return random.randint(0, 2**32 - 1)
+
+
+def _seeds(params: dict, count: int) -> list[tuple[int, int | None]]:
+    # with a variation the main seed stays put and the variation seed advances instead
     base = int(params.get("seed", -1))
+    var = params.get("variation") or {}
+    if var.get("enabled") and float(var.get("strength") or 0) > 0:
+        main = _rand() if base == -1 else base
+        vb = int(var.get("seed", -1))
+        return [(main, _rand() if vb == -1 else vb + i) for i in range(count)]
+    return [(_rand() if base == -1 else base + i, None) for i in range(count)]
+
+
+def submit(params: dict, count: int = 1, meta: list[dict] | None = None, repeat: bool = False) -> list[str]:
+    # meta, when given, is one dict per job merged into the job record (e.g. grid cells)
+    count = 1 if repeat else len(meta) if meta else max(1, int(count))
+    seeds = _seeds(params, 1 if meta else count) * (count if meta else 1)
     ids = []
     with _cond:
         for i in range(count):
             p = copy.deepcopy(params)
-            p["seed"] = random.randint(0, 2**32 - 1) if base == -1 else base + i
+            p["seed"], vs = seeds[i]
+            if vs is not None:
+                p["variation"] = dict(p["variation"], seed=vs)
             jid = uuid.uuid4().hex[:12]
             ids.append(jid)
-            _jobs.append(
-                {
-                    "id": jid,
-                    "params": p,
-                    "status": "queued",
-                    "createdAt": store.now_ms(),
-                    "startedAt": None,
-                    "finishedAt": None,
-                    "images": [],
-                    "error": None,
-                }
-            )
+            job = {
+                "id": jid,
+                "params": p,
+                "status": "queued",
+                "createdAt": store.now_ms(),
+                "startedAt": None,
+                "finishedAt": None,
+                "images": [],
+                "error": None,
+            }
+            if meta:
+                extra = copy.deepcopy(meta[i])
+                job["params"] = _merge(p, extra.pop("patch", {}))
+                job.update(extra)
+            if repeat:
+                job["repeat"] = True
+                _repeat[jid] = _advance(params)
+            _jobs.append(job)
         _cond.notify_all()
     _broadcast_queue()
     return ids
+
+
+def _advance(params: dict) -> dict:
+    # locked seeds step forward for each repeat, random ones stay random
+    p = copy.deepcopy(params)
+    var = p.get("variation") or {}
+    if var.get("enabled") and float(var.get("strength") or 0) > 0:
+        if int(var.get("seed", -1)) >= 0:
+            p["variation"] = dict(var, seed=int(var["seed"]) + 1)
+    elif int(p.get("seed", -1)) >= 0:
+        p["seed"] = int(p["seed"]) + 1
+    return p
+
+
+def _merge(base: dict, patch: dict) -> dict:
+    out = copy.deepcopy(base)
+    for k, v in patch.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _merge(out[k], v)
+        else:
+            out[k] = copy.deepcopy(v)
+    return out
+
+
+def cancel_where(pred) -> int:
+    n = 0
+    with _cond:
+        for j in list(_jobs):
+            if not pred(j):
+                continue
+            n += 1
+            if j["status"] == "running":
+                _cancel.add(j["id"])
+            else:
+                _jobs.remove(j)
+                _repeat.pop(j["id"], None)
+    if n:
+        _broadcast_queue()
+    return n
 
 
 def cancel(jid: str) -> bool:
@@ -68,11 +149,21 @@ def cancel(jid: str) -> bool:
                     _cancel.add(jid)
                 else:
                     _jobs.remove(j)
+                    _repeat.pop(jid, None)
                 break
         else:
             return False
     _broadcast_queue()
     return True
+
+
+def stop_repeat() -> None:
+    # the running copy still finishes, it just stops queueing new ones
+    with _cond:
+        _repeat.clear()
+        for j in _jobs:
+            j.pop("repeat", None)
+    _broadcast_queue()
 
 
 def reorder(ids: list[str]) -> list[dict]:
@@ -89,6 +180,8 @@ def reorder(ids: list[str]) -> list[dict]:
 def clear() -> None:
     with _cond:
         _jobs[:] = [j for j in _jobs if j["status"] == "running"]
+        for k in [k for k in _repeat if not any(j["id"] == k for j in _jobs)]:
+            del _repeat[k]
     _broadcast_queue()
 
 
@@ -103,10 +196,10 @@ def start() -> None:
 def _loop() -> None:
     while True:
         with _cond:
-            job = next((j for j in _jobs if j["status"] == "queued"), None)
+            job = None if _paused else next((j for j in _jobs if j["status"] == "queued"), None)
             while job is None:
                 _cond.wait()
-                job = next((j for j in _jobs if j["status"] == "queued"), None)
+                job = None if _paused else next((j for j in _jobs if j["status"] == "queued"), None)
             job["status"] = "running"
             job["startedAt"] = store.now_ms()
         _broadcast_queue()
@@ -115,11 +208,20 @@ def _loop() -> None:
         except Exception as e:
             _fail(job, e)
         finally:
+            nxt = _repeat.pop(job["id"], None)
+            if nxt is not None and job["status"] == "done":
+                submit(nxt, repeat=True)
             with _cond:
                 if job in _jobs:
                     _jobs.remove(job)
                 _cancel.discard(job["id"])
+                drained = not any(j["status"] == "queued" for j in _jobs)
             _broadcast_queue()
+            for fn in list(on_finish):
+                try:
+                    fn(job, drained)
+                except Exception as e:
+                    print(f"[somnia] finish hook failed: {e}")
 
 
 def _fail(job: dict, e: Exception) -> None:
@@ -143,9 +245,9 @@ def _fail(job: dict, e: Exception) -> None:
     hub.broadcast({"type": "error", "jobId": job["id"], "message": msg})
 
 
-def _data_url(img: Image.Image) -> str:
+def _data_url(img: Image.Image, size: int = 512) -> str:
     im = img.convert("RGB")
-    im.thumbnail((512, 512))
+    im.thumbnail((size, size))
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=70)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
@@ -160,6 +262,8 @@ def _weights(p: dict) -> list[tuple[str, float]]:
         w.append(("detail", 0.2 * n))
     if (p.get("upscale") or {}).get("enabled"):
         w.append(("upscale", 0.2))
+        if ((p.get("upscale") or {}).get("tiled") or {}).get("enabled"):
+            w.append(("refine", 0.8))
     return w
 
 
@@ -186,7 +290,9 @@ def _run_job(job: dict) -> None:
             state["overall"] = 0.99
         return state["overall"]
 
-    def progress(phase: str, step: int, total: int, preview: Image.Image | None = None, label: str | None = None) -> None:
+    def progress(
+        phase: str, step: int, total: int, preview: Image.Image | None = None, label: str | None = None, region: dict | None = None
+    ) -> None:
         o = overall(phase, step, total)
         el = time.monotonic() - t0
         eta = round(el / o * (1 - o), 1) if o > 0.03 else None
@@ -199,8 +305,9 @@ def _run_job(job: dict) -> None:
                 "total": total,
                 "overall": round(o, 4),
                 "etaSec": eta,
-                "preview": _data_url(preview) if preview is not None else None,
+                "preview": _data_url(preview, 1024 if region else 512) if preview is not None else None,
                 "label": label,
+                "region": region,
             }
         )
 

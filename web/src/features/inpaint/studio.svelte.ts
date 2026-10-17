@@ -97,9 +97,9 @@ class Studio {
   }
 
   private loadPrompt(p: GenParams) {
-    const seg = p.segments
-    this.positive = seg?.positive?.length ? structuredClone(seg.positive) : textToSegments(p.prompt)
-    this.negative = seg?.positive?.length ? structuredClone(seg.negative ?? []) : textToSegments(p.negative)
+    const seg = $state.snapshot(p.segments)
+    this.positive = seg?.positive?.length ? seg.positive : textToSegments(p.prompt)
+    this.negative = seg?.positive?.length ? (seg.negative ?? []) : textToSegments(p.negative)
   }
 
   // shows the gallery image right away; the upload copy and the stack load in the background

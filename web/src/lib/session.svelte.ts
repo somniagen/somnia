@@ -78,6 +78,19 @@ class Session {
     if (p) Object.assign(p, patch)
   }
 
+  // patches the current family's params and returns an undo that restores the replaced values
+  patchWithUndo(patch: Partial<GenParams>): () => void {
+    const p = this.byFamily[this.family]
+    if (!p) return () => {}
+    const fam = this.family
+    const prev = $state.snapshot(Object.fromEntries(Object.keys(patch).map((k) => [k, p[k as keyof GenParams]]))) as Partial<GenParams>
+    Object.assign(p, structuredClone($state.snapshot(patch)))
+    return () => {
+      const q = this.byFamily[fam]
+      if (q) Object.assign(q, prev)
+    }
+  }
+
   resetDefaults() {
     const d = this.presets?.families[this.family]?.defaults
     if (!d) return
@@ -119,11 +132,12 @@ class Session {
   // applies params loaded from an image or a civitai example; unknown fields are ignored
   applyParams(p: Partial<GenParams>) {
     if (p.family && p.family !== this.family && this.byFamily[p.family]) this.family = p.family
-    const { prompt, negative, segments, stackId: _s, ...rest } = p
+    // snapshot so gallery state proxies are neither cloned nor shared
+    const { prompt, negative, segments, stackId: _s, ...rest } = $state.snapshot(p) as Partial<GenParams>
     this.update(rest)
     if (segments?.positive?.length) {
-      this.positive[this.family] = structuredClone(segments.positive)
-      this.negative[this.family] = structuredClone(segments.negative ?? textToSegments(negative ?? ''))
+      this.positive[this.family] = segments.positive
+      this.negative[this.family] = segments.negative ?? textToSegments(negative ?? '')
     } else if (prompt !== undefined) {
       this.positive[this.family] = textToSegments(prompt)
       if (negative !== undefined) this.negative[this.family] = textToSegments(negative)
@@ -145,10 +159,10 @@ class Session {
     } as GenParams
   }
 
-  async generate() {
+  async generate(count = this.count, repeat = false) {
     const p = this.build()
     if (!p) return
-    return api.queue(p, this.count)
+    return api.queue(p, count, repeat)
   }
 }
 

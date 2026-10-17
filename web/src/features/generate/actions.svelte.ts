@@ -63,6 +63,16 @@ export function upscaleAgain(item: GalleryItem) {
   })
 }
 
+export function variations(item: GalleryItem) {
+  if (!item.params) return toast.info('No params stored in this image')
+  const { init: _init, stackId: _s, ...rest } = item.params
+  const params = { ...rest, init: null, seed: item.seed, batchSize: 1, variation: { enabled: true, seed: -1, strength: 0.1 } }
+  return guard(async () => {
+    await api.queue(params, 4)
+    toast.success('Queued 4 variations')
+  })
+}
+
 export function openInpaint(item: GalleryItem) {
   go('#/inpaint')
   return guard(() => studio.open(item))
@@ -110,5 +120,15 @@ export async function addFile(file: File) {
     toast.success('Image set as input')
   } catch (e) {
     toast.error('Upload failed', { description: e instanceof Error ? e.message : String(e) })
+  }
+}
+
+// the new transparent image arrives through the gallery_item broadcast too
+export async function removeBackground(item: GalleryItem): Promise<GalleryItem | null> {
+  try {
+    return await api.removeBg(item.id)
+  } catch (e) {
+    toast.error('Background removal failed', { description: e instanceof Error ? e.message : String(e) })
+    return null
   }
 }

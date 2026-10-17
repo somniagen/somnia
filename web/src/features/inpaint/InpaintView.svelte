@@ -2,12 +2,14 @@
   import OpenInEditor from '$features/editors/OpenInEditor.svelte'
   import ModelSelect from '$features/models/ModelSelect.svelte'
   import PromptEditor from '$features/prompt/PromptEditor.svelte'
+  import PromptLibrary from '$features/prompt/PromptLibrary.svelte'
+  import SendTo from '$features/prompt/SendTo.svelte'
   import { boot } from '$features/shell/boot.svelte'
   import Logo from '$features/shell/Logo.svelte'
   import { live } from '$lib/live.svelte'
   import { session } from '$lib/session.svelte'
-  import type { GalleryItem } from '$lib/types'
-  import { Button, Dropzone, EmptyState, Field, IconButton, ImageTile, NumberField, SeedField, Segmented, Slider, Spinner, Toggle, mobile, toast, tooltip } from '$lib/ui'
+  import type { GalleryItem, SavedPrompt } from '$lib/types'
+  import { Button, Dropzone, EmptyState, Field, IconButton, ImageTile, NumberField, SeedField, Segmented, Sheet, Slider, Spinner, Toggle, mobile, toast, tooltip } from '$lib/ui'
   import Inpainter from './Inpainter.svelte'
   import type { Rect } from './mask'
   import { studio } from './studio.svelte'
@@ -17,6 +19,7 @@
   let busy = $state(false)
   let compare = $state(false)
   let lastSeed = $state(Math.floor(Math.random() * 4294967295))
+  let library = $state(false)
 
   const b = $derived(studio.base)
   const o = $derived(studio.opts)
@@ -74,6 +77,12 @@
     }
   }
 
+  function loadPrompt(s: SavedPrompt) {
+    studio.positive = $state.snapshot(s.positive)
+    studio.negative = $state.snapshot(s.negative)
+    library = false
+  }
+
   async function pickFile(f: File) {
     try {
       await studio.openFile(f)
@@ -121,6 +130,13 @@
     <Segmented items={families} bind:value={studio.family} full size="sm" />
     {#if p}<ModelSelect kind="checkpoint" family={fam} bind:value={p.model} />{/if}
     {#key fam}
+      <div class="phead">
+        <span class="lbl">Prompt</span>
+        <span class="pact">
+          <SendTo from="inpaint" />
+          <IconButton icon="bookmarks" label="Saved prompts" size="sm" onclick={() => (library = true)} />
+        </span>
+      </div>
       <PromptEditor kind="positive" family={fam} loras={p?.loras} placeholder="What goes in the masked area" bind:segments={studio.positive} />
       <PromptEditor kind="negative" family={fam} placeholder="Negative prompt" bind:segments={studio.negative} />
     {/key}
@@ -300,6 +316,10 @@
   {/if}
 </div>
 
+<Sheet bind:open={library} title="Saved prompts" width={520}>
+  <PromptLibrary onload={loadPrompt} />
+</Sheet>
+
 <style>
   .iv {
     height: 100%;
@@ -311,6 +331,20 @@
     position: relative;
     flex: 1;
     min-height: 0;
+  }
+  .phead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .pact {
+    display: flex;
+    gap: var(--sp-1);
+  }
+  .lbl {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    font-weight: 500;
   }
   section {
     display: flex;

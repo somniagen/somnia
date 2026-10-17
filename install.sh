@@ -27,6 +27,29 @@ run() {
   fi
 }
 
+build_web() (
+  cd web
+  # node_modules copied from another os has the wrong native binaries (rollup, esbuild)
+  plat=$(node -p 'process.platform + "-" + process.arch')
+  if [ -d node_modules ] && [ "$(cat node_modules/.somnia-platform 2>/dev/null)" != "$plat" ]; then
+    echo "removing node_modules installed for another platform..."
+    rm -rf node_modules
+  fi
+  # drives without symlink support (ntfs/exfat mounts, some shares) break npm's .bin links
+  links=""
+  if ! ln -s package.json .somnia-link-test 2>/dev/null; then
+    links="--no-bin-links"
+  fi
+  rm -f .somnia-link-test
+  # no lifecycle scripts: none are needed (esbuild/rollup ship prebuilt binaries) and they fail on noexec or
+  # permission restricted drives; the native binaries just need their exec bit back
+  npm ci --no-audit --no-fund --ignore-scripts $links ||
+    { rm -rf node_modules && npm install --no-audit --no-fund --ignore-scripts $links; } || return 1
+  chmod +x node_modules/@esbuild/*/bin/esbuild node_modules/esbuild/bin/esbuild 2>/dev/null || true
+  echo "$plat" > node_modules/.somnia-platform
+  node node_modules/vite/bin/vite.js build
+)
+
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 export UV_PYTHON_PREFERENCE=only-managed
 
@@ -76,9 +99,12 @@ if [ "$need_web" -eq 1 ]; then
   if [ "$check" -eq 1 ]; then
     echo "[check] would build the frontend in web/"
   else
+    command -v node >/dev/null 2>&1 || fail "node not found, install Node.js LTS (20.19+): https://nodejs.org"
     command -v npm >/dev/null 2>&1 || fail "npm not found, install Node.js LTS: https://nodejs.org"
+    node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 12) || (a === 20 && b >= 19) ? 0 : 1)' ||
+      fail "Node.js $(node -v) is too old, the frontend needs 20.19+ or 22.12+: https://nodejs.org"
     echo "building frontend..."
-    (cd web && { npm ci || npm install; } && npm run build) || fail "frontend build failed"
+    build_web || fail "frontend build failed"
   fi
 else
   echo "frontend up to date"

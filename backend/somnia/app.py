@@ -11,12 +11,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, jobs, net
+from . import auth, config, jobs, net
 from .hub import hub
 from .hub import router as hub_router
 
-ROUTERS = ["jobs", "gallery", "settings", "prompts", "models", "civitai", "tags", "inpaint", "editors"]
+ROUTERS = ["jobs", "gallery", "settings", "prompts", "models", "civitai", "tags", "inpaint", "editors", "grids", "auth", "push"]
 DIST = config.ROOT / "web" / "dist"
+# windows registry mime types are unreliable, service workers and manifests need these exact ones
+MIME = {".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".webmanifest": "application/manifest+json",
+        ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".woff": "font/woff", ".html": "text/html"}
 
 
 class LanGuard:
@@ -36,6 +39,19 @@ class LanGuard:
                                             (b"content-length", str(len(body)).encode())]})
                     await send({"type": "http.response.body", "body": body})
                 return
+        if scope["type"] in ("http", "websocket") and auth.protected(scope.get("path", "")) and not auth.allowed(scope):
+            if scope["type"] == "websocket":
+                # accept first so the browser sees the 4401 close code
+                await receive()
+                await send({"type": "websocket.accept"})
+                await send({"type": "websocket.close", "code": 4401})
+            else:
+                body = b'{"detail":"login required"}'
+                await send({"type": "http.response.start", "status": 401,
+                            "headers": [(b"content-type", b"application/json"),
+                                        (b"content-length", str(len(body)).encode())]})
+                await send({"type": "http.response.body", "body": body})
+            return
         await self.app(scope, receive, send)
 
 
@@ -79,8 +95,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(404)
             f = (DIST / path).resolve()
             if path and f.is_file() and DIST.resolve() in f.parents:
-                return FileResponse(f)
-            return FileResponse(DIST / "index.html")
+                headers = {"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"} if path == "sw.js" else None
+                return FileResponse(f, media_type=MIME.get(f.suffix.lower()), headers=headers)
+            return FileResponse(DIST / "index.html", headers={"Cache-Control": "no-cache"})
 
     app.add_middleware(LanGuard)
     return app

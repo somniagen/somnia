@@ -1,8 +1,8 @@
 <script lang="ts">
   import OpenInEditor from '$features/editors/OpenInEditor.svelte'
   import type { GalleryItem } from '$lib/types'
-  import { IconButton, mobile } from '$lib/ui'
-  import { download, img2img, openInpaint, removeImage, reuse, upscaleAgain } from './actions.svelte'
+  import { IconButton, mobile, toast } from '$lib/ui'
+  import { download, img2img, openInpaint, removeBackground, removeImage, reuse, upscaleAgain, variations } from './actions.svelte'
 
   let {
     item,
@@ -31,6 +31,15 @@
     if (await removeImage(item)) onremoved?.()
   }
 
+  let cutting = $state(false)
+  async function cutout() {
+    if (cutting) return
+    cutting = true
+    const out = await removeBackground(item)
+    cutting = false
+    if (out) toast.success('Background removed', { description: 'Saved in the same stack' })
+  }
+
   const nav = (fn: (i: GalleryItem) => unknown) => async () => {
     await fn(item)
     onnavigate?.()
@@ -43,6 +52,14 @@
   <IconButton icon="brush" label="Inpaint" onclick={nav(openInpaint)} />
   <IconButton icon="image" label="Use as input" onclick={nav(img2img)} />
   <IconButton icon="zoom_in" label="Upscale again" onclick={nav(upscaleAgain)} />
+  <IconButton icon="difference" label="Variations" onclick={() => variations(item)} disabled={!item.params} />
+  <IconButton
+    icon={cutting ? 'progress_activity' : 'background_replace'}
+    label={cutting ? 'Removing background' : 'Remove background'}
+    class={cutting ? 'spin' : undefined}
+    disabled={cutting}
+    onclick={cutout}
+  />
   <IconButton icon="download" label="Download" onclick={() => download(item)} />
   <IconButton
     icon={armed ? 'delete_forever' : 'delete'}
@@ -64,5 +81,13 @@
   }
   .acts :global(.del:not(.danger)) {
     color: var(--danger);
+  }
+  .acts :global(.spin .icon) {
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

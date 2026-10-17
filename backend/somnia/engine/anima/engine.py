@@ -12,6 +12,7 @@ from safetensors import safe_open
 
 from .. import mem, optim, previews
 from ..base import Engine, RunContext, SampleRequest
+from ..noise import slerp
 from . import lora as lora_mod
 from .dit import AnimaDiT
 from .sampling import SAMPLERS, SCHEDULERS, FlowSchedule, sample, sigmas_for
@@ -397,7 +398,11 @@ class AnimaEngine(Engine):
         sched = FlowSchedule(float(getattr(req, "shift", None) or DEFAULT_SHIFT))
         seed = int(req.seed) & 0xFFFFFFFFFFFFFFFF
         gen = torch.Generator().manual_seed(seed)
-        noise = torch.randn((bs, 16, 1, lh, lw), generator=gen, dtype=torch.float32).to(self.device)
+        noise = torch.randn((bs, 16, 1, lh, lw), generator=gen, dtype=torch.float32)
+        if req.variation_seed is not None and req.phase == "sample":
+            vg = torch.Generator().manual_seed(int(req.variation_seed) & 0xFFFFFFFFFFFFFFFF)
+            noise = slerp(noise, torch.randn(noise.shape, generator=vg, dtype=torch.float32), float(req.variation_strength))
+        noise = noise.to(self.device)
 
         orig = None
         mask = None

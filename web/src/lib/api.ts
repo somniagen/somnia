@@ -6,10 +6,15 @@ import type {
   Detection,
   Download,
   EditorList,
+  GalleryAlbum,
   GalleryItem,
   GenParams,
+  Grid,
+  GridAxis,
+  IdentifyState,
   Job,
   LocalModel,
+  ModelDefaults,
   ModelKind,
   NetInfo,
   RelatedTag,
@@ -21,13 +26,17 @@ import type {
   TagCategory,
   TagWiki,
   UploadResult,
+  PushSubscriptionJson,
 } from './types'
+import { auth } from './auth.svelte'
 
 export interface GalleryFilter {
   // comma separated terms matched against prompt, model, loras, editor and seed; "-term" excludes
   q?: string
   model?: string
   sort?: 'newest' | 'oldest' | 'model'
+  fav?: 1
+  album?: string
 }
 
 export class ApiError extends Error {
@@ -45,6 +54,7 @@ async function req<T>(method: string, path: string, body?: unknown, signal?: Abo
   }
   const res = await fetch(path, init)
   if (!res.ok) {
+    if (res.status === 401 && !path.startsWith('/api/auth')) auth.lock()
     let msg = res.statusText
     try {
       const j = await res.json()
@@ -73,10 +83,12 @@ const del = <T>(p: string) => req<T>('DELETE', p)
 export const api = {
   state: () => get<Snapshot>('/api/state'),
   presets: () => get<Presets>('/api/presets'),
-  queue: (params: GenParams, count = 1) => post<{ ids: string[] }>('/api/jobs', { params, count }),
+  queue: (params: GenParams, count = 1, repeat = false) => post<{ ids: string[] }>('/api/jobs', { params, count, repeat }),
   cancel: (id: string) => del<void>(`/api/jobs/${id}`),
   reorder: (ids: string[]) => post<Job[]>('/api/jobs/reorder', { ids }),
   clearQueue: () => post<void>('/api/jobs/clear'),
+  stopRepeat: () => post<void>('/api/jobs/stop-repeat'),
+  pause: (paused: boolean) => post<{ paused: boolean }>('/api/jobs/pause', { paused }),
 
   gallery: (cursor?: string, limit = 60, filter: GalleryFilter = {}) =>
     get<{ items: GalleryItem[]; nextCursor: string | null }>(`/api/gallery${qs({ cursor, limit, ...filter })}`),
@@ -84,6 +96,24 @@ export const api = {
   galleryUpload: (id: string) => post<UploadResult>(`/api/gallery/${id}/upload`),
   stack: (id: string) => get<GalleryItem[]>(`/api/gallery/${id}/stack`),
   deleteImage: (id: string) => del<void>(`/api/gallery/${id}`),
+  setCover: (id: string) => put<GalleryItem>(`/api/gallery/${id}/cover`),
+  setFavorite: (id: string, favorite: boolean) => put<GalleryItem>(`/api/gallery/${id}/favorite`, { favorite }),
+  setFavorites: (ids: string[], favorite: boolean) => post<GalleryItem[]>('/api/gallery/favorite', { ids, favorite }),
+  removeBg: (id: string) => post<GalleryItem>(`/api/gallery/${id}/remove-bg`),
+  albums: () => get<GalleryAlbum[]>('/api/gallery/albums'),
+  addToAlbum: (ids: string[], album: string) => post<GalleryItem[]>('/api/gallery/albums/add', { ids, album }),
+  removeFromAlbum: (ids: string[], album: string) => post<GalleryItem[]>('/api/gallery/albums/remove', { ids, album }),
+  renameAlbum: (album: string, name: string) => put<GalleryAlbum[]>(`/api/gallery/albums/${encodeURIComponent(album)}`, { name }),
+  deleteAlbum: (album: string) => del<GalleryAlbum[]>(`/api/gallery/albums/${encodeURIComponent(album)}`),
+  downloadImages: async (ids: string[]) => {
+    const res = await fetch('/api/gallery/download', { method: 'POST', body: JSON.stringify({ ids }), headers: { 'content-type': 'application/json' } })
+    if (!res.ok) {
+      if (res.status === 401) auth.lock()
+      throw new ApiError(res.status, res.statusText)
+    }
+    const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'somnia.zip'
+    return { name, blob: await res.blob() }
+  },
   upload: (file: Blob, name = 'image.png') => {
     const fd = new FormData()
     fd.append('file', file, name)
@@ -94,6 +124,12 @@ export const api = {
   updateSettings: (s: Partial<Settings>) => patch<Settings>('/api/settings', s),
   net: () => get<NetInfo>('/api/net'),
 
+  pushKey: () => get<{ key: string }>('/api/push/key'),
+  pushSubscribe: (subscription: PushSubscriptionJson, label: string) =>
+    post<{ endpoint: string; label: string }>('/api/push/subscribe', { subscription, label }),
+  pushUnsubscribe: (endpoint: string) => req<{ removed: boolean }>('DELETE', '/api/push/subscribe', { endpoint }),
+  pushTest: (endpoint?: string) => post<{ sent: number }>('/api/push/test', { endpoint }),
+
   prompts: () => get<SavedPrompt[]>('/api/prompts'),
   createPrompt: (p: Omit<SavedPrompt, 'id' | 'createdAt' | 'updatedAt'>) => post<SavedPrompt>('/api/prompts', p),
   updatePrompt: (p: SavedPrompt) => put<SavedPrompt>(`/api/prompts/${p.id}`, p),
@@ -103,6 +139,12 @@ export const api = {
   rescan: () => post<LocalModel[]>('/api/models/rescan'),
   deleteModel: (id: string) => del<void>(`/api/models/${encodeURIComponent(id)}`),
   modelPreviewUrl: (id: string) => `/api/models/preview/${encodeURIComponent(id)}`,
+  identify: () => post<IdentifyState>('/api/models/identify'),
+  identifyState: () => get<IdentifyState>('/api/models/identify'),
+  checkUpdates: () => post<{ changed: boolean }>('/api/models/updates'),
+  modelDefaults: () => get<Record<string, ModelDefaults>>('/api/models/defaults'),
+  setModelDefaults: (id: string, d: Omit<ModelDefaults, 'updatedAt'>) => put<ModelDefaults>(`/api/models/defaults/${encodeURIComponent(id)}`, d),
+  clearModelDefaults: (id: string) => del<void>(`/api/models/defaults/${encodeURIComponent(id)}`),
 
   civitaiSearch: (q: CivitaiSearchQuery, signal?: AbortSignal) =>
     get<CivitaiSearchResult>(`/api/civitai/search${qs(q)}`, signal),
@@ -130,4 +172,9 @@ export const api = {
 
   detect: (imageId: string, detector: string, confidence = 0.3) =>
     post<Detection[]>('/api/detect', { imageId, detector, confidence }),
+
+  grids: (limit = 20) => get<Grid[]>(`/api/grids${qs({ limit })}`),
+  grid: (id: string) => get<Grid>(`/api/grids/${id}`),
+  createGrid: (base: GenParams, axes: GridAxis[]) => post<Grid>('/api/grids', { base, axes }),
+  deleteGrid: (id: string) => del<void>(`/api/grids/${id}`),
 }

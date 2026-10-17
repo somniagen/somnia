@@ -1,4 +1,5 @@
 import type { Download, GalleryItem, Job, Progress, Settings, WsMessage } from './types'
+import { auth } from './auth.svelte'
 
 type Listener = (msg: WsMessage) => void
 
@@ -7,6 +8,7 @@ const sortRecent = (items: GalleryItem[]) => [...items].sort((a, b) => b.created
 class Live {
   connected = $state(false)
   queue = $state<Job[]>([])
+  paused = $state(false)
   current = $state<Progress | null>(null)
   preview = $state<string | null>(null)
   recent = $state<GalleryItem[]>([])
@@ -49,10 +51,11 @@ class Live {
       this.retry = 0
     }
     ws.onmessage = (e) => this.handle(JSON.parse(e.data) as WsMessage)
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       if (this.ws !== ws) return
       this.connected = false
       this.ws = null
+      if (e.code === 4401) return auth.lock()
       const delay = Math.min(5000, 300 * 2 ** this.retry++)
       setTimeout(() => this.open(), delay)
     }
@@ -71,6 +74,7 @@ class Live {
     switch (msg.type) {
       case 'snapshot':
         this.queue = msg.queue
+        this.paused = msg.paused
         this.current = msg.current
         this.preview = msg.current?.preview ?? null
         this.recent = sortRecent(msg.recent)
@@ -78,6 +82,7 @@ class Live {
         break
       case 'queue':
         this.queue = msg.queue
+        this.paused = msg.paused
         if (!msg.queue.some((j) => j.status === 'running')) this.current = null
         break
       case 'progress': {

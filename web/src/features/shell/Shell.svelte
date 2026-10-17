@@ -11,6 +11,7 @@
   const nav = [
     { hash: '#/', icon: 'auto_awesome', label: 'Generate' },
     { hash: '#/inpaint', icon: 'format_paint', label: 'Inpaint' },
+    { hash: '#/grid', icon: 'grid_view', label: 'Grid' },
     { hash: '#/gallery', icon: 'photo_library', label: 'Gallery' },
     { hash: '#/models', icon: 'deployed_code', label: 'Models' },
     { hash: '#/settings', icon: 'settings', label: 'Settings' },
@@ -82,7 +83,7 @@
     {/if}
     <main>{@render children()}</main>
     {#if mobile.current}
-      <nav class="tabs" aria-label="Main">
+      <nav class="tabs" aria-label="Main" style="--n: {nav.length}">
         {#each nav as n}
           <a href={n.hash} class="tb" class:on={active(n.hash)} aria-current={active(n.hash) ? 'page' : undefined}>
             <span class="icon" class:fill={active(n.hash)}>{n.icon}</span>
@@ -105,6 +106,19 @@
     flex-direction: column;
     height: 100dvh;
     overflow: hidden;
+    padding-top: env(safe-area-inset-top);
+  }
+  /* solid strip under the translucent ios status bar */
+  .app::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-top);
+    background: var(--bg);
+    z-index: var(--z-progress);
+    pointer-events: none;
   }
   .body {
     flex: 1;
@@ -217,7 +231,7 @@
   .tabs {
     flex: none;
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr));
     height: calc(56px + env(safe-area-inset-bottom));
     padding-bottom: env(safe-area-inset-bottom);
     background: var(--grad-1);
@@ -244,11 +258,20 @@
     color: var(--accent-strong);
   }
   .tl {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 11px;
+  }
+  @media (max-width: 360px) {
+    .tl {
+      font-size: 10px;
+    }
   }
   .offdot {
     position: fixed;
-    top: 8px;
+    top: calc(8px + env(safe-area-inset-top));
     right: 8px;
     width: 8px;
     height: 8px;

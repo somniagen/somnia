@@ -20,6 +20,7 @@ TYPE_MAP: dict[str, tuple[str, str]] = {
     "vae": ("vae", "vae"),
     "upscaler": ("upscaler", "upscale_models"),
     "textencoder": ("text_encoder", "text_encoders"),
+    "textualinversion": ("embedding", "embeddings"),
 }
 
 MAX_CONCURRENT = 2
