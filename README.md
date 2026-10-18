@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/banner.png" alt="Somnia" width="100%" />
+  <img src="branding/png/somnia-banner-1600.png" alt="Somnia" width="100%" />
 </p>
 
 <p align="center">

@@ -8,5 +8,8 @@ node_modules/
 *.pyc
 /plugins/
 /.claude/launch.json
-/branding/
+/branding/*
+!/branding/png/
+/branding/png/*
+!/branding/png/somnia-banner-1600.png
 /scripts/
