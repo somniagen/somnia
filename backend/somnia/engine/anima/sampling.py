@@ -6,8 +6,8 @@ from typing import Callable
 import numpy as np
 import torch
 
-SAMPLERS = ["er_sde", "euler", "euler_a", "dpmpp_2m"]
-SCHEDULERS = ["simple", "normal", "beta", "sgm_uniform"]
+SAMPLERS = ["er_sde", "euler", "euler_a", "dpmpp_2m", "res_multistep"]
+SCHEDULERS = ["simple", "normal", "beta", "beta57", "sgm_uniform", "linear_quadratic"]
 
 
 class FlowSchedule:
@@ -57,19 +57,36 @@ def get_sigmas(sched: FlowSchedule, scheduler: str, steps: int) -> torch.Tensor:
             ts = torch.linspace(start, end, steps)
             sigs = [float(sched.sigma(t)) for t in ts] + [0.0]
         return torch.tensor(sigs)
-    if scheduler == "beta":
+    if scheduler in ("beta", "beta57"):
+        a, b = (0.5, 0.7) if scheduler == "beta57" else (0.6, 0.6)
         total = len(sched.sigmas) - 1
         ts = 1 - np.linspace(0, 1, steps, endpoint=False)
-        ts = np.rint(_beta_ppf(ts, 0.6, 0.6) * total)
+        ts = np.rint(_beta_ppf(ts, a, b) * total)
         sigs, last = [], -1
         for t in ts:
             if t != last:
                 sigs.append(float(sched.sigmas[int(t)]))
             last = t
         return torch.tensor(sigs + [0.0])
+    if scheduler == "linear_quadratic":
+        return _linear_quadratic(steps) * sched.sigma_max
     ss = len(sched.sigmas) / steps
     sigs = [float(sched.sigmas[-(1 + int(x * ss))]) for x in range(steps)]
     return torch.tensor(sigs + [0.0])
+
+
+def _linear_quadratic(steps: int, threshold: float = 0.025) -> torch.Tensor:
+    # mochi schedule as in comfy: linear first half, quadratic tail, ignores the shift
+    if steps == 1:
+        return torch.tensor([1.0, 0.0])
+    lin = steps // 2
+    quad = steps - lin
+    diff = lin - threshold * steps
+    qc = diff / (lin * quad**2)
+    lc = threshold / lin - 2 * diff / quad**2
+    const = qc * lin**2
+    sched = [i * threshold / lin for i in range(lin)] + [qc * i**2 + lc * i + const for i in range(lin, steps)] + [1.0]
+    return torch.tensor([1.0 - x for x in sched])
 
 
 def sigmas_for(sched: FlowSchedule, scheduler: str, steps: int, denoise: float) -> torch.Tensor:
@@ -137,7 +154,28 @@ def sample(name: str, model: Denoiser, x: torch.Tensor, sigmas: torch.Tensor, sc
         return x
     if name == "er_sde":
         return _er_sde(model, x, sig, sched, seed)
+    if name == "res_multistep":
+        return _res_multistep(model, x, sig)
     raise ValueError(f"unknown sampler {name}")
+
+
+def _res_multistep(model: Denoiser, x, sig):
+    old = old_s = None
+    for i in range(len(sig) - 1):
+        d0 = model(x, sig[i], i)
+        s, sn = sig[i], sig[i + 1]
+        if sn == 0 or old is None:
+            x = x + (x - d0) / s * (sn - s)
+        else:
+            t, t_old, t_next = -math.log(s), -math.log(old_s), -math.log(sn)
+            h = t_next - t
+            c2 = (-math.log(sig[i - 1]) - t_old) / h
+            phi1 = math.expm1(-h) / -h
+            phi2 = (phi1 - 1.0) / -h
+            b2 = phi2 / c2 if c2 else 0.0
+            x = math.exp(-h) * x + h * ((phi1 - b2) * d0 + b2 * old)
+        old, old_s = d0, sn
+    return x
 
 
 def _er_sde(model: Denoiser, x, sig, sched: FlowSchedule, seed: int, max_stage: int = 3):

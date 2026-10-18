@@ -17,8 +17,8 @@ SDXL_BUCKETS: list[tuple[int, int]] = [
 
 ILLUSTRIOUS_SAMPLERS = ["euler_a", "euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "dpmpp_sde", "uni_pc", "heun", "ddim", "lcm"]
 ILLUSTRIOUS_SCHEDULERS = ["normal", "karras", "exponential", "sgm_uniform", "simple", "beta"]
-ANIMA_SAMPLERS = ["er_sde", "euler_a", "euler", "dpmpp_2m"]
-ANIMA_SCHEDULERS = ["simple", "normal", "karras", "beta"]
+ANIMA_SAMPLERS = ["er_sde", "euler_a", "euler", "res_multistep", "dpmpp_2m"]
+ANIMA_SCHEDULERS = ["simple", "normal", "sgm_uniform", "beta", "beta57", "linear_quadratic"]
 
 
 def _models(kind: str) -> list[dict]:

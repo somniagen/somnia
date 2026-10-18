@@ -66,10 +66,10 @@ def _base_defaults(family: str) -> dict:
 
 
 _SAMPLERS = {
-    "euler_a", "euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "dpmpp_sde", "uni_pc", "heun", "ddim", "lcm", "er_sde",
+    "euler_a", "euler", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "dpmpp_sde", "uni_pc", "heun", "ddim", "lcm", "er_sde", "res_multistep",
 }
 _SAMPLER_ALIASES = {"euler_ancestral": "euler_a", "unipc": "uni_pc", "dpmpp_2m_sde_gpu": "dpmpp_2m_sde", "dpmpp_3m_sde_gpu": "dpmpp_3m_sde"}
-_SCHEDULERS = {"normal", "karras", "exponential", "sgm_uniform", "simple", "beta"}
+_SCHEDULERS = {"normal", "karras", "exponential", "sgm_uniform", "simple", "beta", "beta57", "linear_quadratic"}
 
 
 def _sampler(name: str) -> tuple[str | None, str | None]:
