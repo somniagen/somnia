@@ -128,7 +128,7 @@ def illustrious_defaults() -> dict:
 
 def anima_defaults() -> dict:
     model = _pick("checkpoint", ["animayume"], "anima") or _pick_family("checkpoint", "anima")
-    te = _pick("text_encoder", ["anima"], exclude=["vl"]) or _pick("text_encoder", ["qwen3_0.6b", "qwen3-0.6b", "qwen3"])
+    te = _pick_family("text_encoder", "anima")
     vae = _pick("vae", ["qwen_image_vae", "qwen-image-vae", "qwen_image", "wan_2.1_vae", "wan2.1"])
     d = illustrious_defaults()
     d.update(

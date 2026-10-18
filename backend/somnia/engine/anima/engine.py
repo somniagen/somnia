@@ -47,6 +47,18 @@ def _dit_prefix(keys) -> str | None:
     return None
 
 
+def _dit_config(sd: dict[str, torch.Tensor]) -> dict:
+    # bigger variants (e.g. 2.9b) only add blocks, but read every size from the weights anyway
+    blocks = 1 + max(int(k.split(".")[1]) for k in sd if k.startswith("blocks."))
+    ch = sd["blocks.0.self_attn.q_proj.weight"].shape[0]
+    return {
+        "model_channels": ch,
+        "num_blocks": blocks,
+        "num_heads": ch // sd["blocks.0.self_attn.q_norm.weight"].shape[0],
+        "context_dim": sd["blocks.0.cross_attn.k_proj.weight"].shape[1],
+    }
+
+
 def _te_prefix(keys) -> str | None:
     for p in TE_PREFIXES:
         if f"{p}model.layers.0.self_attn.q_norm.weight" in keys:
@@ -163,7 +175,7 @@ class AnimaEngine(Engine):
             ex = ("text_encoders.", "vae.", "first_stage_model.") if dp == "" else ()
             sd = _load(mpath, dp, device=self.device, skip=("pos_embedder.",), dtype=self._dit_dtype(), exclude=ex)
             with torch.device("meta"):
-                m = AnimaDiT()
+                m = AnimaDiT(**_dit_config(sd))
             m.load_state_dict(sd, strict=True, assign=True)
             del sd
             self.dit = m.to(self.device).eval().requires_grad_(False)
@@ -171,18 +183,21 @@ class AnimaEngine(Engine):
             self._restore_all()
             mem.flush()
 
+        tpath, tp, bad = None, None, None
         if req.text_encoder:
             tpath = Path(ctx.resolve(req.text_encoder))
             tp = _te_prefix(_keys(tpath))
-        elif _te_prefix(mkeys) is not None:
+            if tp is None:
+                bad = tpath.name
+        if tp is None and _te_prefix(mkeys) is not None:
             tpath, tp = mpath, _te_prefix(mkeys)
-        else:
-            tpath = _find_sibling(mpath, "text_encoders", ["qwen_3_06b", "qwen3", "anima"], _te_prefix)
-            if tpath is None:
-                raise ValueError("anima needs a qwen3 0.6b text encoder")
-            tp = _te_prefix(_keys(tpath))
         if tp is None:
-            raise ValueError(f"{tpath.name} is not a qwen3 text encoder")
+            tpath = _find_sibling(mpath, "text_encoders", ["qwen_3_06b", "qwen3", "anima"], _te_prefix)
+            tp = _te_prefix(_keys(tpath)) if tpath else None
+        if tp is None:
+            if bad:
+                raise ValueError(f"{bad} is not the qwen3 0.6b text encoder anima needs")
+            raise ValueError("anima needs a qwen3 0.6b text encoder")
         if self.te_src != (tpath, tp):
             self.te = self.te_park = None
             self.touched_te.clear()

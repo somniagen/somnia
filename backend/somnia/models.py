@@ -30,6 +30,7 @@ _models: dict[str, dict] | None = None
 _paths: dict[str, Path] = {}
 _cache: dict | None = None
 _cache_dirty = False
+_CACHE_V = 2
 
 
 def _load_cache() -> dict:
@@ -111,6 +112,19 @@ def _family_from_header(h: dict, kind: str) -> str | None:
         return "illustrious" if any("label_emb" in k for k in sample) else None
     if any("down_blocks" in k and "add_embedding" in k for k in sample) or any("add_embedding" in k for k in sample):
         return "illustrious"
+    return None
+
+
+_QWEN3_TE = tuple(
+    f"{p}model.layers.0.self_attn.q_norm.weight"
+    for p in ("text_encoders.qwen3_06b.transformer.", "qwen3_06b.transformer.", "text_encoder.", "")
+)
+
+
+def _te_family(h: dict) -> str | None:
+    # anima's qwen3 0.6b; qwen3 vl and other llms nest their layers under other prefixes
+    if any(k in h for k in _QWEN3_TE):
+        return "anima"
     return None
 
 
@@ -274,15 +288,17 @@ def _scan() -> tuple[dict[str, dict], dict[str, Path]]:
                     key = str(p)
                     seen_cache_keys.add(key)
                     ent = cache.get(key)
-                    if not ent or ent.get("mtime") != st.st_mtime or ent.get("size") != st.st_size:
+                    if not ent or ent.get("mtime") != st.st_mtime or ent.get("size") != st.st_size or ent.get("v") != _CACHE_V:
                         fam = None
                         if p.suffix.lower() == ".safetensors" and kind in ("checkpoint", "lora", "vae", "text_encoder", "embedding"):
                             h = read_header(p)
                             if kind == "embedding":
                                 fam = "illustrious" if h is not None and "clip_l" in h and "clip_g" in h else None
+                            elif kind == "text_encoder":
+                                fam = _te_family(h) if h is not None else None
                             else:
                                 fam = _family_from_header(h, kind) if h is not None and kind in ("checkpoint", "lora") else None
-                        ent = {"mtime": st.st_mtime, "size": st.st_size, "family": fam}
+                        ent = {"mtime": st.st_mtime, "size": st.st_size, "family": fam, "v": _CACHE_V}
                         cache[key] = ent
                         _cache_dirty = True
                     civ = read_sidecar(p)
