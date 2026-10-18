@@ -139,9 +139,10 @@ def anima_defaults() -> dict:
             "textEncoder": te or None,
             # tuned for anima-2.9b, following the creator's own showcase workflows
             "prompt": "masterpiece, best quality, highres, absurdres, year 2025, year 2026, (@korusakku:0.7), (@luozhou pile:0.8), ",
-            "negative": "worst quality, low quality, lowres, old, ancient, score_1, score_2, score_3, blurry, jpeg artifacts, sepia, "
-            "chromatic aberration, bad anatomy, bad hands, missing fingers, extra limbs, deformed, watermark, signature, artist name, text, "
-            "scan artifacts",
+            "negative": "worst quality, lowres, old, ancient, low quality, score_1, score_2, score_3, blurry, sepia, jpeg artifacts, "
+            "low quality, worst quality, blurry, bad anatomy, extra limbs, deformed, watermark, text, signature, bad gun anatomy, bareness, "
+            "artifacts, copyrights name, scan artifacts, bad hands, missing fingers, artist name, artist signature, english text, deviantart, "
+            "ye-pop, dataset",
             "width": 1152,
             "height": 1536,
             "steps": 30,
