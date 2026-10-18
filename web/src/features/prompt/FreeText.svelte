@@ -313,7 +313,7 @@
   const cls = (t: (typeof tokens)[number]) => (t.kind === 'tag' ? (rm(t) ? 't rm' : 't') : t.kind)
 </script>
 
-<div class="ft" style="--rows: {minRows}">
+<div class="ft" class:empty={!value} style="--rows: {minRows}">
   <div class="mirror" bind:this={mirror} aria-hidden="true">{#each tokens as t (t.start)}<span data-s={t.start} data-tag={t.tag} class={cls(t)} style={t.kind === 'tag' && !rm(t) ? `color: ${colorOf(categories.get(t.tag!))}` : undefined}>{t.text}</span>{/each}{' '}</div>
   <textarea
     bind:this={el}

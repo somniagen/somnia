@@ -62,6 +62,11 @@
     flex-direction: column;
     gap: 3px;
   }
+  /* an empty line after a section's boilerplate only shows once the section is focused */
+  .row:not(.main) :global(.pe:not(:focus-within) .lk ~ .ft.empty) {
+    height: 0;
+    overflow: hidden;
+  }
   .lbl {
     padding-left: 2px;
     color: var(--text-faint);
