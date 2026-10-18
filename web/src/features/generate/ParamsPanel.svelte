@@ -4,6 +4,7 @@
   import PromptEditor from '$features/prompt/PromptEditor.svelte'
   import PromptLibrary from '$features/prompt/PromptLibrary.svelte'
   import SendTo from '$features/prompt/SendTo.svelte'
+  import StructuredPrompt from '$features/prompt/StructuredPrompt.svelte'
   import { session } from '$lib/session.svelte'
   import type { Family, SavedPrompt } from '$lib/types'
   import { AspectPicker, Dropzone, Field, IconButton, NumberField, SeedField, Segmented, Select, Sheet, Slider } from '$lib/ui'
@@ -66,16 +67,29 @@
           <span class="pact">
             <SendTo from="generate" />
             {#if fam === 'illustrious'}<EmbeddingPicker family={fam} />{/if}
+            {#if fam === 'anima'}
+              <IconButton
+                icon="view_agenda"
+                label={session.structured ? 'Single prompt box' : 'Split into quality, subject, artists and prompt'}
+                size="sm"
+                active={session.structured}
+                onclick={() => (session.structured = !session.structured)}
+              />
+            {/if}
             <IconButton icon="bookmarks" label="Saved prompts" size="sm" onclick={() => (library = true)} />
           </span>
         </div>
-        <PromptEditor
-          kind="positive"
-          family={fam}
-          loras={p.loras}
-          placeholder="Describe the image"
-          bind:segments={() => session.positive[fam] ?? [], (v) => (session.positive[fam] = v)}
-        />
+        {#if fam === 'anima' && session.structured}
+          <StructuredPrompt family={fam} loras={p.loras} bind:segments={() => session.positive[fam] ?? [], (v) => (session.positive[fam] = v)} />
+        {:else}
+          <PromptEditor
+            kind="positive"
+            family={fam}
+            loras={p.loras}
+            placeholder="Describe the image"
+            bind:segments={() => session.positive[fam] ?? [], (v) => (session.positive[fam] = v)}
+          />
+        {/if}
         <PromptEditor
           kind="negative"
           family={fam}

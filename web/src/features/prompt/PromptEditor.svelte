@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { Button, Chip, IconButton, Popover, coarse, toast, tooltip } from '$lib/ui'
-  import { segmentsToText } from '$lib/session.svelte'
+  import { bareTag, removedTags, segmentsToText, session } from '$lib/session.svelte'
   import type { Family, LoraRef, PromptSegment } from '$lib/types'
   import Dock from './Dock.svelte'
   import FreeText from './FreeText.svelte'
@@ -17,8 +17,22 @@
     family,
     loras = [],
     placeholder = '',
-  }: { segments: PromptSegment[]; kind?: 'positive' | 'negative'; family: Family; loras?: LoraRef[]; placeholder?: string } =
-    $props()
+    foot = true,
+    rows,
+    removed,
+    onreset,
+  }: {
+    segments: PromptSegment[]
+    kind?: 'positive' | 'negative'
+    family: Family
+    loras?: LoraRef[]
+    placeholder?: string
+    foot?: boolean
+    rows?: number
+    // "-tag" removals when they live outside these segments (structured sections)
+    removed?: Set<string>
+    onreset?: () => void
+  } = $props()
 
   const segs = $derived(segments ?? [])
   const view = $derived<PromptSegment[]>(
@@ -148,6 +162,7 @@
   const loraWords = $derived(
     new Set(loraModels.list.flatMap((m) => m.civitai?.trainedWords ?? []).map((w) => w.trim().replace(/^,+|,+$/g, '').trim())),
   )
+  const off = $derived(removed ?? removedTags(segs))
   const segKey = (s: PromptSegment) => colorKey(s, segKind(s.text, kind, (t) => categories.get(t), loraWords))
 
   // reorder
@@ -462,6 +477,13 @@
   const tokens = $derived(estimateTokens(segmentsToText(segs)))
   const chunk = $derived(Math.max(75, Math.ceil(tokens / 75) * 75))
 
+  function useDefault() {
+    if (onreset) return onreset()
+    const prev = $state.snapshot(segs) as PromptSegment[]
+    segments = session.defaultSegments(family, kind)
+    toast(kind === 'positive' ? 'Default prompt' : 'Default negative', { action: { label: 'Undo', run: () => (segments = prev) } })
+  }
+
   function clearFree() {
     const prev = $state.snapshot(segs) as PromptSegment[]
     segments = segs.filter((s) => s.locked)
@@ -534,6 +556,7 @@
           >{#each tokenize(s.text) as t (t.start)}<span
               data-tag={t.tag}
               class={t.kind}
+              class:off={t.tag && off.size && off.has(bareTag(t.text))}
               style={t.tag ? `--c: ${colorOf(categories.get(t.tag))}` : undefined}>{t.text}</span
             >{/each}</span
         >
@@ -542,7 +565,7 @@
           bind:value={() => s.text, (v) => setText(i, v)}
           bind:el={els[i]}
           placeholder={i === lastFree && !hasFree ? placeholder : ''}
-          minRows={i === lastFree ? (kind === 'positive' ? 3 : 2) : 1}
+          minRows={i === lastFree ? (rows ?? (kind === 'positive' ? 3 : 2)) : 1}
           onlock={(a, b) => lockRange(i, a, b)}
           onedge={(d) => edge(i, d)}
           onbackspaceempty={() => backspaceEmpty(i)}
@@ -556,7 +579,7 @@
       {/if}
     {/each}
   </div>
-  <div class="foot">
+  {#if foot}<div class="foot">
     <div class="trig">
       {#each triggers as t (t.text)}
         <Chip
@@ -572,10 +595,11 @@
     </div>
     <div class="tools">
       <span class="count" class:over={tokens > 75} use:tooltip={'Approximate tokens, 75 per chunk'}>{tokens}/{chunk}</span>
+      <IconButton icon="restart_alt" label={kind === 'positive' ? 'Use default prompt' : 'Use default negative'} size="sm" onclick={useDefault} />
       <IconButton icon="ink_eraser" label="Clear prompt" size="sm" disabled={!hasFree} onclick={clearFree} />
       <IconButton bind:el={saveBtn} icon="bookmark_add" label="Save to library" size="sm" active={saveOpen} onclick={() => (saveOpen = !saveOpen)} />
     </div>
-  </div>
+  </div>{/if}
 </div>
 
 {#if marker}
@@ -744,6 +768,11 @@
   }
   .lk .tag:hover {
     color: color-mix(in srgb, var(--c) 55%, var(--boilerplate));
+  }
+  .lk .off {
+    text-decoration: line-through;
+    text-decoration-color: color-mix(in srgb, var(--danger) 70%, transparent);
+    opacity: 0.55;
   }
   .lk .lora {
     color: color-mix(in srgb, var(--tag-lora) 45%, var(--boilerplate));

@@ -417,7 +417,11 @@ export interface PromptSegment {
   locked: boolean
   // boilerplate color key (see features/prompt/segcolor.ts), auto by content when missing
   color?: string
+  // structured anima prompt section, unset means the plain prompt
+  section?: PromptSection
 }
+
+export type PromptSection = 'quality' | 'subject' | 'artists' | 'prompt'
 
 export interface SavedPrompt {
   id: string

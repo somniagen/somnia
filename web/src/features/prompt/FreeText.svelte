@@ -84,7 +84,7 @@
   let acOpen = $state(false)
   let items = $state<Tag[]>([])
   let active = $state(0)
-  let frag: { start: number; end: number; query: string } | null = null
+  let frag: { start: number; end: number; query: string; caret: number } | null = null
   let acAnchor = $state<{ x: number; y: number }>({ x: 0, y: 0 })
   let acEl = $state<HTMLDivElement>()
   let ctrl: AbortController | null = null
@@ -106,15 +106,17 @@
       closeAc()
       return
     }
-    const f = el.selectionStart === el.selectionEnd ? fragmentAt(value, el.selectionStart) : null
-    if (!f) return closeAc()
+    const at = el.selectionStart
+    const found = el.selectionStart === el.selectionEnd ? fragmentAt(value, at) : null
+    if (!found) return closeAc()
+    const f = { ...found, caret: at }
     frag = f
     clearTimeout(acTimer)
     acTimer = setTimeout(async () => {
       ctrl?.abort()
       const c = (ctrl = new AbortController())
       try {
-        const res = await searchTags(f.query, c.signal)
+        const res = await searchTags(f.query.replace(/^-/, ''), c.signal)
         if (c.signal.aborted || frag !== f) return
         items = res
         active = 0
@@ -139,8 +141,16 @@
   function accept(t: Tag) {
     const f = frag
     if (!f || !el) return
-    let ins = displayTag(t.name)
+    let ins = (f.query.startsWith('-') ? '-' : '') + displayTag(t.name)
     if (f.start > 0 && value[f.start - 1] === ',') ins = ' ' + ins
+    // typed in front of an existing tag: keep it unless the pick already ends with it (a mid-tag fix)
+    const tail = value.slice(f.caret, f.end)
+    if (tail.trim() && !ins.toLowerCase().endsWith(tail.toLowerCase())) {
+      suppress = true
+      closeAc()
+      replace(f.start, f.caret + tail.length - tail.trimStart().length, ins + ', ')
+      return
+    }
     const after = value.slice(f.end)
     const comma = /^\s*,\s*/.exec(after)
     suppress = true
@@ -299,11 +309,12 @@
     onhover?.(row ? items[i].name : null, row, false, row ? items[i].count : undefined)
   }
 
-  const cls = (t: (typeof tokens)[number]) => (t.kind === 'tag' ? 't' : t.kind)
+  const rm = (t: (typeof tokens)[number]) => t.kind === 'tag' && /^-\S/.test(t.text)
+  const cls = (t: (typeof tokens)[number]) => (t.kind === 'tag' ? (rm(t) ? 't rm' : 't') : t.kind)
 </script>
 
 <div class="ft" style="--rows: {minRows}">
-  <div class="mirror" bind:this={mirror} aria-hidden="true">{#each tokens as t (t.start)}<span data-s={t.start} data-tag={t.tag} class={cls(t)} style={t.kind === 'tag' ? `color: ${colorOf(categories.get(t.tag!))}` : undefined}>{t.text}</span>{/each}{' '}</div>
+  <div class="mirror" bind:this={mirror} aria-hidden="true">{#each tokens as t (t.start)}<span data-s={t.start} data-tag={t.tag} class={cls(t)} style={t.kind === 'tag' && !rm(t) ? `color: ${colorOf(categories.get(t.tag!))}` : undefined}>{t.text}</span>{/each}{' '}</div>
   <textarea
     bind:this={el}
     bind:value
@@ -424,6 +435,9 @@
     color: var(--text);
     pointer-events: none;
     overflow: hidden;
+  }
+  .rm {
+    color: color-mix(in srgb, var(--danger) 75%, var(--text-muted));
   }
   textarea {
     width: 100%;

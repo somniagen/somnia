@@ -3,9 +3,53 @@ import type { Family, FamilyInfo, GenParams, LoraRef, PromptSegment, Presets } f
 
 const KEY = 'somnia.session.v1'
 
+// top level comma items, ignoring commas inside parentheses or escaped
+export function promptItems(text: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let cur = ''
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (c === '\\' && i + 1 < text.length) {
+      cur += c + text[++i]
+      continue
+    }
+    if (c === '(' || c === '[' || c === '{') depth++
+    else if ((c === ')' || c === ']' || c === '}') && depth > 0) depth--
+    if ((c === ',' || c === '\n') && depth === 0) {
+      out.push(cur)
+      cur = ''
+    } else cur += c
+  }
+  out.push(cur)
+  return out.map((x) => x.trim()).filter(Boolean)
+}
+
+// "(tag:1.2)", "(tag)" and "[tag]" all compare as "tag"
+export function bareTag(item: string): string {
+  let t = item.trim()
+  for (let m; (m = /^[([{]([^]*?)(?::\s*-?\d*\.?\d+\s*)?[)\]}]$/.exec(t)); ) t = m[1].trim()
+  return t.replace(/\\([()[\]{}])/g, '$1').replace(/_/g, ' ').replace(/\s+/g, ' ').toLowerCase()
+}
+
+// "-tag" items in editable text remove that tag from the boilerplate
+export function removedTags(segs: PromptSegment[]): Set<string> {
+  const out = new Set<string>()
+  for (const s of segs) if (!s.locked) for (const it of promptItems(s.text)) if (/^-\S/.test(it)) out.add(bareTag(it.slice(1)))
+  return out
+}
+
 export function segmentsToText(segs: PromptSegment[]): string {
+  const removed = removedTags(segs)
   return segs
-    .map((s) => s.text.trim().replace(/^,+|,+$/g, '').trim())
+    .map((s) => {
+      const t = s.text.trim().replace(/^,+|,+$/g, '').trim()
+      if (!removed.size) return t
+      const keep = s.locked
+        ? promptItems(t).filter((it) => !removed.has(bareTag(it)))
+        : promptItems(t).filter((it) => !/^-\S/.test(it))
+      return keep.join(', ')
+    })
     .filter(Boolean)
     .join(', ')
 }
@@ -20,6 +64,7 @@ interface Stored {
   params: Partial<Record<Family, GenParams>>
   positive: Partial<Record<Family, PromptSegment[]>>
   negative: Partial<Record<Family, PromptSegment[]>>
+  structured?: boolean
 }
 
 class Session {
@@ -29,6 +74,8 @@ class Session {
   positive = $state<Partial<Record<Family, PromptSegment[]>>>({})
   negative = $state<Partial<Record<Family, PromptSegment[]>>>({})
   count = $state(1)
+  // anima positive prompt split into quality, subject, artists and prompt sections
+  structured = $state(false)
 
   info = $derived<FamilyInfo | null>(this.presets?.families[this.family] ?? null)
   params = $derived<GenParams | null>(this.byFamily[this.family] ?? null)
@@ -41,6 +88,7 @@ class Session {
         this.byFamily = s.params
         this.positive = s.positive
         this.negative = s.negative
+        this.structured = !!s.structured
         const ill = this.byFamily.illustrious
         if (!s.v && ill && ill.width === 832 && ill.height === 1216) Object.assign(ill, { width: 1024, height: 1536 })
       }
@@ -60,12 +108,18 @@ class Session {
           params: $state.snapshot(this.byFamily),
           positive: $state.snapshot(this.positive),
           negative: $state.snapshot(this.negative),
+          structured: this.structured,
         }
         try {
           localStorage.setItem(KEY, JSON.stringify(s))
         } catch {}
       })
     })
+  }
+
+  defaultSegments(family: Family, kind: 'positive' | 'negative'): PromptSegment[] {
+    const d = this.presets?.families[family]?.defaults
+    return this.splitDefault((kind === 'positive' ? d?.prompt : d?.negative) ?? '')
   }
 
   // preset prompts come as "quality prefix, " so the prefix becomes a locked boilerplate segment
