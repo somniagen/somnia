@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { EmptyState, Segmented, Select, Skeleton, Surface } from '$lib/ui'
+  import { EmptyState, SearchField, Segmented, Select, Skeleton, Surface } from '$lib/ui'
   import { api } from '$lib/api'
   import type { HfCategory, HfRepo, HfSearchQuery } from '$lib/types'
   import HfDetail from './HfDetail.svelte'
@@ -78,10 +78,7 @@
 
 <div class="hf">
   <div class="bar">
-    <div class="search">
-      <span class="icon">search</span>
-      <input type="search" placeholder="Search Hugging Face" aria-label="Search Hugging Face" bind:value={q} />
-    </div>
+    <SearchField class="search" placeholder="Search Hugging Face" bind:value={q} />
     <Select
       size="sm"
       icon="sort"
@@ -140,6 +137,10 @@
 <HfDetail repo={detail} {category} bind:open={detailOpen} />
 
 <style>
+  .bar :global(.search) {
+    flex: 1;
+    min-width: 200px;
+  }
   .hf {
     display: flex;
     flex-direction: column;
@@ -156,30 +157,6 @@
     max-width: 100%;
     overflow-x: auto;
     scrollbar-width: none;
-  }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    flex: 1;
-    min-width: 200px;
-    height: var(--control-h);
-    padding: 0 var(--sp-3);
-    border-radius: var(--r-md);
-    background: var(--surface-2);
-    color: var(--text-muted);
-  }
-  .search input {
-    flex: 1;
-    min-width: 0;
-    border: 0;
-    outline: 0;
-    background: none;
-    color: var(--text);
-    font: inherit;
-  }
-  .search input::-webkit-search-cancel-button {
-    display: none;
   }
   .list {
     display: grid;

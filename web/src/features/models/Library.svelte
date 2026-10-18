@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Chip, EmptyState, GlowProgressBar, IconButton, Modal, Segmented, Select, Skeleton, Surface, toast, tooltip } from '$lib/ui'
+  import { Button, Chip, EmptyState, GlowProgressBar, IconButton, Modal, SearchField, Segmented, Select, Skeleton, Surface, toast, tooltip } from '$lib/ui'
   import { api } from '$lib/api'
   import { session } from '$lib/session.svelte'
   import type { CivitaiModel, LocalModel, ModelKind } from '$lib/types'
@@ -118,10 +118,7 @@
     </div>
   {/if}
   <div class="bar">
-    <div class="search">
-      <span class="icon">search</span>
-      <input type="text" placeholder="Search" aria-label="Search" bind:value={q} />
-    </div>
+    <SearchField size="sm" class="search" bind:value={q} />
     {#if hasFamily}
       <Select
         size="sm"
@@ -217,6 +214,10 @@
 <CivitaiDetail model={detail} initialVersion={detailVersion} bind:open={detailOpen} />
 
 <style>
+  .bar :global(.search) {
+    flex: 1;
+    min-width: 140px;
+  }
   .lib {
     display: flex;
     flex-direction: column;
@@ -236,28 +237,6 @@
     max-width: 100%;
     overflow-x: auto;
     scrollbar-width: none;
-  }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    flex: 1;
-    min-width: 140px;
-    height: var(--control-h-sm);
-    padding: 0 var(--sp-3);
-    border-radius: var(--r-sm);
-    background: var(--surface-2);
-    color: var(--text-muted);
-  }
-  .search input {
-    flex: 1;
-    min-width: 0;
-    border: 0;
-    outline: 0;
-    background: none;
-    color: var(--text);
-    font: inherit;
-    font-size: var(--fs-sm);
   }
   .grid {
     display: grid;

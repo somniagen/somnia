@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, EmptyState, IconButton, Menu, Skeleton, toast, type MenuItem } from '$lib/ui'
+  import { Button, EmptyState, IconButton, Menu, SearchField, Skeleton, toast, type MenuItem } from '$lib/ui'
   import { session } from '$lib/session.svelte'
   import { segmentsToText } from '$lib/session.svelte'
   import type { SavedPrompt } from '$lib/types'
@@ -94,10 +94,7 @@
     <Button size="sm" variant="primary" icon="bookmark_add" type="submit" loading={saving} disabled={!session.params}>Save</Button>
   </form>
   {#if library.items.length > 4}
-    <label class="search">
-      <span class="icon" aria-hidden="true">search</span>
-      <input bind:value={q} placeholder="Search" aria-label="Search prompts" />
-    </label>
+    <SearchField size="sm" class="search" aria-label="Search prompts" bind:value={q} />
   {/if}
 
   <div class="list">
@@ -158,8 +155,7 @@
     display: flex;
     gap: var(--sp-2);
   }
-  .inp,
-  .search {
+  .inp {
     flex: 1;
     min-width: 0;
     height: var(--control-h-sm);
@@ -172,34 +168,12 @@
     font-size: var(--fs-sm);
     outline: none;
   }
-  .inp:focus-visible,
-  .search:focus-within {
+  .inp:focus-visible {
     box-shadow: inset 0 0 0 1px var(--focus-line);
     background: var(--surface-3);
   }
-  .inp::placeholder,
-  .search input::placeholder {
+  .inp::placeholder {
     color: var(--text-faint);
-  }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text-faint);
-  }
-  .search .icon {
-    font-size: 17px;
-  }
-  .search input {
-    flex: 1;
-    min-width: 0;
-    height: 100%;
-    border: 0;
-    background: none;
-    color: var(--text);
-    font: inherit;
-    outline: none;
-    box-shadow: none;
   }
   .list {
     display: flex;
@@ -264,7 +238,7 @@
   }
   @media (pointer: coarse) {
     .inp,
-    .search {
+    .lib :global(.search) {
       height: var(--control-h);
     }
     .main {

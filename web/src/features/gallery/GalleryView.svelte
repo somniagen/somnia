@@ -5,7 +5,7 @@
   import { api } from '$lib/api'
   import { live } from '$lib/live.svelte'
   import type { GalleryItem } from '$lib/types'
-  import { Button, EmptyState, IconButton, ImageTile, Menu, Select, Skeleton, coarse, mobile, reducedMotion, toast, tooltip, type MenuItem } from '$lib/ui'
+  import { Button, EmptyState, IconButton, ImageTile, Menu, SearchField, Select, Skeleton, coarse, mobile, reducedMotion, toast, tooltip, type MenuItem } from '$lib/ui'
   import Logo from '$features/shell/Logo.svelte'
   import AlbumName from './AlbumName.svelte'
   import Compare from './Compare.svelte'
@@ -531,21 +531,13 @@
   </header>
   {#if !stack && (all.length || filtered)}
     <div class="tools">
-      <label class="search">
-        <span class="icon">search</span>
-        <input
-          type="search"
-          placeholder="Tags, model, lora, seed"
-          aria-label="Search gallery"
-          value={q}
-          oninput={(e) => setQuery(e.currentTarget.value)}
-          spellcheck="false"
-          autocomplete="off"
-        />
-        {#if q}
-          <button type="button" class="clr" aria-label="Clear search" onclick={() => setQuery('')}><span class="icon">close</span></button>
-        {/if}
-      </label>
+      <SearchField
+        size="sm"
+        class="search"
+        placeholder="Tags, model, lora, seed"
+        aria-label="Search gallery"
+        bind:value={() => q, setQuery}
+      />
       <Select items={modelItems} bind:value={() => model, (v) => ((model = v), reload())} label="Model" size="sm" class="msel" />
       <Select items={sorts} bind:value={() => sort, (v) => ((sort = v), reload())} label="Sort" size="sm" class="ssel" />
       {#if library.albums.length || album}
@@ -976,58 +968,8 @@
     gap: var(--sp-2);
     padding: 0 var(--sp-4) var(--sp-3);
   }
-  .search {
+  .tools :global(.search) {
     flex: 1 1 260px;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    height: var(--control-h-sm);
-    padding: 0 4px 0 var(--sp-2);
-    border-radius: var(--r-sm);
-    background: var(--grad-2);
-    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.35);
-    color: var(--text-muted);
-    cursor: text;
-  }
-  .search:focus-within {
-    box-shadow: var(--focus-ring);
-  }
-  .search .icon {
-    font-size: 18px;
-  }
-  .search input {
-    flex: 1;
-    min-width: 0;
-    height: 100%;
-    border: 0;
-    outline: 0;
-    background: none;
-    color: var(--text);
-    font: inherit;
-    font-size: var(--fs-sm);
-  }
-  .search input::-webkit-search-cancel-button {
-    display: none;
-  }
-  .clr {
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border: 0;
-    border-radius: var(--r-sm);
-    background: none;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-  .clr:hover {
-    background: var(--hover);
-    color: var(--text);
-  }
-  .clr .icon {
-    font-size: 16px;
   }
   .tools :global(.msel) {
     flex: 0 1 200px;
@@ -1044,7 +986,7 @@
     .tools {
       padding: 0 var(--sp-2) var(--sp-2);
     }
-    .search {
+    .tools :global(.search) {
       flex-basis: 100%;
     }
     .tools :global(.msel),

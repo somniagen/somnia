@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BottomSheet, Button, Chip, IconButton, Menu, Modal, Slider, EmptyState, mobile, type MenuItem } from '$lib/ui'
+  import { BottomSheet, Button, Chip, IconButton, Menu, Modal, SearchField, Slider, EmptyState, mobile, type MenuItem } from '$lib/ui'
   import type { Family, LoraRef, LocalModel } from '$lib/types'
   import { modelDefaults } from './defaults.svelte'
   import { models } from './store.svelte'
@@ -61,11 +61,8 @@
 </script>
 
 {#snippet picker()}
-  <div class="search">
-    <span class="icon" aria-hidden="true">search</span>
-    <!-- svelte-ignore a11y_autofocus -->
-    <input type="text" placeholder="Search" aria-label="Search" bind:value={q} autofocus={!mobile.current} />
-  </div>
+  <!-- svelte-ignore a11y_autofocus -->
+  <SearchField class="lp-search" bind:value={q} autofocus={!mobile.current} />
   <div class="plist">
     {#each available as m (m.id)}
       <button type="button" class="prow" onclick={() => add(m)}>
@@ -127,6 +124,9 @@
 {/if}
 
 <style>
+  :global(.lp-search) {
+    margin-bottom: var(--sp-2);
+  }
   .lp {
     display: flex;
     flex-direction: column;
@@ -185,26 +185,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-  }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    height: var(--control-h);
-    padding: 0 var(--sp-3);
-    margin-bottom: var(--sp-2);
-    border-radius: var(--r-md);
-    background: var(--surface-2);
-    color: var(--text-muted);
-  }
-  .search input {
-    flex: 1;
-    min-width: 0;
-    border: 0;
-    outline: 0;
-    background: none;
-    color: var(--text);
-    font: inherit;
   }
   .plist {
     display: flex;

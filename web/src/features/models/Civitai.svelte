@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { EmptyState, Select, Skeleton, Surface, Segmented } from '$lib/ui'
+  import { EmptyState, SearchField, Select, Skeleton, Surface, Segmented } from '$lib/ui'
   import { api } from '$lib/api'
   import { live } from '$lib/live.svelte'
   import type { CivitaiModel, CivitaiSearchQuery } from '$lib/types'
@@ -100,10 +100,7 @@
 
 <div class="cv">
   <div class="bar">
-    <div class="search">
-      <span class="icon">search</span>
-      <input type="text" placeholder="Search Civitai" aria-label="Search Civitai" bind:value={q} />
-    </div>
+    <SearchField class="search" placeholder="Search Civitai" bind:value={q} />
   </div>
   <div class="bar">
     <div class="seg"><Segmented items={TYPES} bind:value={types} size="sm" /></div>
@@ -177,6 +174,9 @@
 <CivitaiDetail model={detail} bind:open={detailOpen} />
 
 <style>
+  .bar :global(.search) {
+    flex: 1;
+  }
   .cv {
     display: flex;
     flex-direction: column;
@@ -193,26 +193,6 @@
     max-width: 100%;
     overflow-x: auto;
     scrollbar-width: none;
-  }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    flex: 1;
-    height: var(--control-h);
-    padding: 0 var(--sp-3);
-    border-radius: var(--r-md);
-    background: var(--surface-2);
-    color: var(--text-muted);
-  }
-  .search input {
-    flex: 1;
-    min-width: 0;
-    border: 0;
-    outline: 0;
-    background: none;
-    color: var(--text);
-    font: inherit;
   }
   .grid {
     display: grid;
