@@ -33,6 +33,7 @@ Items lists (`Select`, `WheelPicker`, `Segmented`, `Tabs`) take plain values or 
 | `Dropzone` | `onfiles(files)`, `accept`, `multiple`, `paste` (window paste), `compact`, `title`, `hint`, children(over) |
 | `Chip` | `label`, `color` (css color or token like `'--tag-artist'`), `locked`, `removable` + `onremove`, `selected`, `onclick`, `size` |
 | `Menu` | `items: MenuItem[]` (`label icon danger disabled shortcut checked onselect` or `{ separator: true }`), `trigger` snippet `({ open, toggle })` or `anchor` + `bind:open` (context menus: anchor `{x,y}`) |
+| `SearchField` | `bind:value`, `bind:input` (the element, for focus shortcuts), `size`, `shortcut` (Kbd hint while empty), `onclear`; Escape clears then blurs |
 | `SeedField` | `bind:value`, `bind:locked`, `max`; dice randomizes |
 | `AspectPicker` | `bind:width`, `bind:height`, `options: [w,h][]`, `custom` (W/H fields), `step min max` |
 | `EmptyState` | `icon`, `title`, `description`, `compact`, children = actions |
