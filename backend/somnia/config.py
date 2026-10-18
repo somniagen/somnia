@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import functools
 import json
+import os
+import sys
 import threading
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -10,13 +13,45 @@ DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 SETTINGS_FILE = DATA_DIR / "settings.json"
 
-COMFY_MODELS = Path(r"D:\ComfyUI_windows_portable_nvidia_cu128\ComfyUI_windows_portable\ComfyUI\models")
+# where a comfyui install keeps its models, relative to a folder it may sit in (portable builds nest it)
+_COMFY_GLOBS = ["ComfyUI*/models", "ComfyUI*/ComfyUI/models", "ComfyUI*/ComfyUI*/ComfyUI/models"]
+
+
+def _fixed_drives() -> list[Path]:
+    if sys.platform != "win32":
+        return []
+    import ctypes
+
+    k = ctypes.windll.kernel32
+    mask = k.GetLogicalDrives()
+    # 3 = fixed disk, skips network and removable drives that can hang
+    return [Path(f"{c}:\\") for i, c in enumerate("ABCDEFGHIJKLMNOPQRSTUVWXYZ") if mask >> i & 1 and k.GetDriveTypeW(f"{c}:\\") == 3]
+
+
+@functools.lru_cache(maxsize=1)
+def comfy_models() -> Path | None:
+    # COMFYUI_MODELS or COMFYUI_PATH win, else the first comfyui install found next to somnia, in home or at a drive root
+    for var, sub in (("COMFYUI_MODELS", ""), ("COMFYUI_PATH", "models")):
+        v = os.environ.get(var)
+        if v and (Path(v) / sub / "checkpoints").is_dir():
+            return Path(v) / sub
+    home = Path.home()
+    for base in [ROOT.parent, home, home / "Documents", home / "Desktop", *_fixed_drives()]:
+        for g in _COMFY_GLOBS:
+            try:
+                for m in sorted(base.glob(g)):
+                    if (m / "checkpoints").is_dir():
+                        return m
+            except OSError:
+                continue
+    return None
 
 
 def _default_roots() -> list[str]:
     roots = [str(ROOT / "models")]
-    if COMFY_MODELS.exists():
-        roots.append(str(COMFY_MODELS))
+    comfy = comfy_models()
+    if comfy:
+        roots.append(str(comfy))
     return roots
 
 

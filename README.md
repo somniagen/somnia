@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="branding/png/somnia-banner-1600.png" alt="Somnia" width="100%" />
+  <img src="docs/banner.png" alt="Somnia" width="100%" />
 </p>
 
 <p align="center">
@@ -42,7 +42,7 @@ git clone https://github.com/somniagen/somnia/
 ./run.sh
 ```
 
-Somnia opens at **http://127.0.0.1:7865**. Put your checkpoints in `./models`, or point Somnia at your existing ComfyUI models folder in settings.
+Somnia opens at **http://127.0.0.1:7865**. Put your checkpoints in `./models`. An existing ComfyUI install is found automatically (next to Somnia, in your home folder or at a drive root); otherwise set `COMFYUI_PATH` or add its models folder under Settings > Storage.
 
 ## Features
 
@@ -53,6 +53,7 @@ Somnia opens at **http://127.0.0.1:7865**. Put your checkpoints in `./models`, o
 - **LoRAs** with their trigger words suggested for you, plus PAG and every common sampler
 - **Live previews** that show the real composition after a few steps, not a noisy blur
 - Runs comfortably on a **12 GB card**, and a locked seed gives you the same image back every time
+- **Variations** of an image you like, and **X/Y/Z grids** to compare samplers, CFG, LoRA weights or prompt words side by side
 
 ### A prompt box that helps
 
@@ -75,10 +76,14 @@ Somnia opens at **http://127.0.0.1:7865**. Put your checkpoints in `./models`, o
 - Inpainted versions are grouped with their original instead of flooding the grid
 - **Reuse** any image's settings, send it to img2img or upscale it again in one click. Dropping in images from other UIs works too
 - **Open in Photoshop, Krita or Paint.NET**, and your saved edits come straight back into the gallery
+- **Remove backgrounds** in one click with ToonOut, a background remover trained on anime, hair strands included
+- **Favorites and albums**, and a **compare** view with a slider and a diff of the two prompts
 
 ### Models, built in
 
 - **Browse and download from Civitai** without leaving the app, with example images and the prompts that made them
+- **Download from Hugging Face** too, filtered to what you need: checkpoints, LoRAs, VAEs, upscalers, or bbox and segm detectors for the detailer
+- Local models are **identified automatically**, and you get a badge when a newer version is out
 - Uses your existing ComfyUI folders as they are
 
 ### Use it from anywhere
@@ -88,6 +93,10 @@ Somnia opens at **http://127.0.0.1:7865**. Put your checkpoints in `./models`, o
 - A proper mobile layout, not a shrunken desktop page
 - Install it to your home screen and **get notified** when the queue finishes
 - Optional password for other devices on your network
+
+### Make it your own
+
+- **Plugins** add pages, image actions, API routes and generation hooks. Drop a folder into `plugins/`, and every save reloads it live, without restarting anything. See the [plugin docs](docs/plugins.md)
 
 ## License
 

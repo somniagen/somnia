@@ -110,13 +110,11 @@ else
   echo "frontend up to date"
 fi
 
-if [ -f scripts/fetch_tags.py ]; then
-  if [ "$check" -eq 1 ]; then
-    echo "[check] would run: scripts/fetch_tags.py"
-  else
-    echo "prefetching small assets..."
-    .venv/bin/python scripts/fetch_tags.py || echo "warning: asset prefetch failed, continuing"
-  fi
+if [ "$check" -eq 1 ]; then
+  echo "[check] would prefetch the danbooru tag list"
+else
+  echo "prefetching small assets..."
+  .venv/bin/python -c "import sys; sys.path.insert(0, 'backend'); from somnia import tags; tags.download_csv()" || echo "warning: asset prefetch failed, continuing"
 fi
 
 echo

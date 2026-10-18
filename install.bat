@@ -65,13 +65,11 @@ if defined NEED_WEB (
   echo frontend up to date
 )
 
-if exist scripts\fetch_tags.py (
-  if defined DRY (
-    echo [check] would run: scripts\fetch_tags.py
-  ) else (
-    echo prefetching small assets...
-    .venv\Scripts\python.exe scripts\fetch_tags.py || echo warning: asset prefetch failed, continuing
-  )
+if defined DRY (
+  echo [check] would prefetch the danbooru tag list
+) else (
+  echo prefetching small assets...
+  .venv\Scripts\python.exe -c "import sys; sys.path.insert(0, 'backend'); from somnia import tags; tags.download_csv()" || echo warning: asset prefetch failed, continuing
 )
 
 echo.
