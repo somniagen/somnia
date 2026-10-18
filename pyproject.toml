@@ -13,7 +13,8 @@ dependencies = [
   "spandrel",
   "ultralytics",
   "opencv-python-headless",
-  "onnxruntime-gpu",
+  # 1.27+ is built for cuda 13, torch here is cu128
+  "onnxruntime-gpu<1.27",
   "numpy",
   "pillow",
   "fastapi",

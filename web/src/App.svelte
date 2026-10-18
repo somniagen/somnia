@@ -6,6 +6,7 @@
   import InpaintView from '$features/inpaint/InpaintView.svelte'
   import ModelManager from '$features/models/ModelManager.svelte'
   import SettingsView from '$features/settings/SettingsView.svelte'
+  import PluginPage from '$features/shell/PluginPage.svelte'
   import Shell from '$features/shell/Shell.svelte'
   import { boot } from '$features/shell/boot.svelte'
   import { EmptyState } from '$lib/ui'
@@ -26,6 +27,7 @@
     const key = { prompt: './features/prompt/Playground.svelte', inpaint: './features/inpaint/Playground.svelte' }[m[1]]
     return key ?? null
   })
+  const pluginRoute = $derived(route.match(/^#\/p\/([\w-]+)\/([\w-]+)/))
   const chrome = $derived(!(route === '#/ui' || route.startsWith('#/dev/')))
 </script>
 
@@ -50,8 +52,10 @@
     <GalleryView />
   {:else if route === '#/models'}
     <ModelManager />
-  {:else if route === '#/settings'}
+  {:else if route.startsWith('#/settings')}
     <SettingsView />
+  {:else if pluginRoute}
+    {#key route}<PluginPage plugin={pluginRoute[1]} page={pluginRoute[2]} />{/key}
   {:else}
     <GenerateView />
   {/if}

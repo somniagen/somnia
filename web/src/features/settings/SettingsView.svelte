@@ -5,16 +5,18 @@
   import { editors } from '$lib/editors.svelte'
   import { live } from '$lib/live.svelte'
   import type { NetInfo, Settings } from '$lib/types'
-  import { Button, Card, EmptyState, Field, IconButton, InfoTip, NumberField, Select, Skeleton, Toggle, mobile, toast } from '$lib/ui'
+  import { Button, Card, EmptyState, Field, IconButton, InfoTip, NumberField, Select, Skeleton, Tabs, Toggle, mobile, toast } from '$lib/ui'
   import Logo from '$features/shell/Logo.svelte'
   import LanSecurity from './LanSecurity.svelte'
   import NotificationsCard from './NotificationsCard.svelte'
+  import PluginsCard from './PluginsCard.svelte'
 
   let s = $state<Settings | null>(null)
   let net = $state<NetInfo | null>(null)
   let error = $state('')
   let denied = $state(false)
   let token = $state('')
+  let hfToken = $state('')
   let qrFor = $state(0)
   let qr = $state('')
 
@@ -26,6 +28,7 @@
     try {
       s = await api.settings()
       token = s.civitaiToken
+      hfToken = s.hfToken
       net = await api.net()
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -58,6 +61,10 @@
   function saveToken() {
     if (!s || token === s.civitaiToken) return
     save({ civitaiToken: token })
+  }
+  function saveHfToken() {
+    if (!s || hfToken === s.hfToken) return
+    save({ hfToken })
   }
   function setRoot(i: number, v: string) {
     if (!s) return
@@ -129,6 +136,39 @@
     return () => (alive = false)
   })
 
+  type Tab = 'generation' | 'network' | 'storage' | 'sources' | 'editors' | 'plugins'
+  const tabs = $derived<{ value: Tab; label: string; icon: string }[]>([
+    { value: 'generation', label: 'Generation', icon: 'tune' },
+    { value: 'network', label: 'Network', icon: 'lan' },
+    { value: 'storage', label: 'Storage', icon: 'folder' },
+    { value: 'sources', label: 'Model sources', icon: 'cloud_download' },
+    ...(editors.list?.local ? [{ value: 'editors' as Tab, label: 'Editors', icon: 'edit' }] : []),
+    { value: 'plugins', label: 'Plugins', icon: 'extension' },
+  ])
+  // #/settings/<tab> so tabs can be linked and survive a reload
+  const fromHash = () => (location.hash.match(/^#\/settings\/(\w+)/)?.[1] ?? 'generation') as Tab
+  let wanted = $state<Tab>(fromHash())
+  const tab = $derived(tabs.some((t) => t.value === wanted) ? wanted : 'generation')
+  $effect(() => {
+    const on = () => (wanted = fromHash())
+    addEventListener('hashchange', on)
+    return () => removeEventListener('hashchange', on)
+  })
+  let mtabs = $state<HTMLDivElement>()
+  $effect(() => {
+    void tab
+    const box = mtabs
+    if (!box) return
+    // keep the active tab visible in the scrolling strip
+    const t = box.querySelector('[aria-selected="true"]')?.getBoundingClientRect()
+    const b = box.getBoundingClientRect()
+    if (t) box.scrollLeft += t.left - b.left - (b.width - t.width) / 2
+  })
+  function go(t: Tab) {
+    wanted = t
+    history.replaceState(history.state, '', `#/settings/${t}`)
+  }
+
   async function copy(t: string) {
     try {
       await navigator.clipboard.writeText(t)
@@ -139,208 +179,257 @@
   }
 </script>
 
-<div class="page">
-  <div class="hrow">
-    {#if mobile.current}<Logo size={22} />{/if}
-    <h1>Settings</h1>
-  </div>
-
-  {#if error}
-    <EmptyState icon="cloud_off" title="Could not load settings" description={error}>
-      <Button icon="refresh" onclick={load}>Retry</Button>
-    </EmptyState>
-  {:else if !s}
-    <div class="skel">
-      <Skeleton height="120px" radius="var(--r-lg)" />
-      <Skeleton height="180px" radius="var(--r-lg)" />
-      <Skeleton height="140px" radius="var(--r-lg)" />
+<div class="page" class:m={mobile.current}>
+  {#if mobile.current}
+    <div class="hrow">
+      <Logo size={22} />
+      <h1>Settings</h1>
     </div>
+    <div class="mtabs" bind:this={mtabs}><Tabs items={tabs} value={tab} onchange={go} /></div>
   {:else}
-    {#if readonly}
-      <div class="ro">
-        <span class="icon">lock</span>
-        Read only
-        <InfoTip text="Settings can only be changed from the machine running Somnia." />
-      </div>
-    {/if}
-
-    <Card title="Network" icon="lan">
-      <div class="stack">
-        <div class="line">
-          <span class="lbl">Local network access <InfoTip text="Lets phones and other computers on your network open Somnia. Turn off when not needed." /></span>
-          <Toggle checked={s.lanEnabled} disabled={readonly} aria-label="Local network access" onchange={(v) => save({ lanEnabled: v })} />
-        </div>
-        {#if s.lanEnabled}
-          {#if urls.length}
-            <div class="lan">
-              <div class="urls">
-                {#each urls as u, i}
-                  <div class="url" class:sel={i === qrFor}>
-                    <button type="button" class="ub" onclick={() => (qrFor = i)}>{u}</button>
-                    <IconButton icon="content_copy" label="Copy" size="sm" onclick={() => copy(u)} />
-                  </div>
-                {/each}
-              </div>
-              {#if qr}<img class="qr" src={qr} alt="QR code for {urls[qrFor] ?? urls[0]}" width="150" height="150" />{/if}
-            </div>
-          {:else}
-            <div class="muted">No network addresses found</div>
-          {/if}
-          <LanSecurity settings={s} {readonly} {local} {save} />
-        {/if}
-      </div>
-    </Card>
-
-    <NotificationsCard />
-
-    <Card title="Storage" icon="folder">
-      <div class="stack">
-        <Field label="Model folders" info="Folders scanned for checkpoints, LoRAs, VAEs and so on.">
-          {#snippet children()}
-            <div class="roots">
-              {#each s!.modelRoots as r, i (r + i)}
-                <div class="root">
-                  <TextInput mono value={r} disabled={readonly} onchange={(v) => setRoot(i, v)} />
-                  <IconButton icon="close" label="Remove" size="sm" disabled={readonly} onclick={() => removeRoot(i)} />
-                </div>
-              {/each}
-              <div class="root">
-                <TextInput mono bind:value={newRoot} placeholder="Add folder" disabled={readonly} onenter={addRoot} />
-                <IconButton icon="add" label="Add" size="sm" disabled={readonly || !newRoot.trim()} onclick={addRoot} />
-              </div>
-            </div>
-          {/snippet}
-        </Field>
-        <Field label="Download folder" info="Where Civitai downloads are saved.">
-          {#snippet children(id)}
-            <TextInput {id} mono value={s!.downloadRoot} disabled={readonly} onchange={(v) => save({ downloadRoot: v })} />
-          {/snippet}
-        </Field>
-        <Field label="Output folder" info="Where generated images are written.">
-          {#snippet children(id)}
-            <TextInput {id} mono value={s!.outputDir} disabled={readonly} onchange={(v) => save({ outputDir: v })} />
-          {/snippet}
-        </Field>
-      </div>
-    </Card>
-
-    {#if editors.list?.local}
-      <Card title="Image editor" icon="edit">
-        <div class="stack">
-          {#if editors.list.editors.length}
-            <Field label="Open images in" info="Adds an open button wherever you view an image. Only shown on this machine.">
-              {#snippet children(id)}
-                <div class="root">
-                  <Select
-                    {id}
-                    items={editorItems}
-                    value={s!.imageEditor}
-                    disabled={readonly}
-                    onchange={(v: string) => save({ imageEditor: v })}
-                    style="flex: 1; min-width: 0"
-                  >
-                    {#snippet item(it)}
-                      <span class="ed">
-                        {#if it.value && it.value !== 'none'}
-                          <img src={api.editorIconUrl(it.value)} alt="" width="18" height="18" />
-                        {:else}
-                          <span class="icon">{it.value === 'none' ? 'block' : 'auto_awesome'}</span>
-                        {/if}
-                        {it.label}
-                      </span>
-                    {/snippet}
-                  </Select>
-                  <IconButton icon="refresh" label="Scan again" size="sm" onclick={() => editors.load(true)} />
-                </div>
-              {/snippet}
-            </Field>
-          {:else}
-            <div class="line">
-              <span class="muted">No Photoshop, Krita or Paint.NET found</span>
-              <Button size="sm" icon="refresh" onclick={() => editors.load(true)}>Scan again</Button>
-            </div>
-          {/if}
-          <Field label="Other editors" info="Add any program that opens image files. Pick its .exe, or paste its path.">
-            {#snippet children()}
-              <div class="roots">
-                {#each customEditors as e (e.id)}
-                  <div class="root cust">
-                    <img src={api.editorIconUrl(e.id)} alt="" width="18" height="18" onerror={(ev) => ((ev.currentTarget as HTMLImageElement).style.visibility = 'hidden')} />
-                    <TextInput value={e.name} disabled={readonly} onchange={(v) => v.trim() && editorCall(editors.apply(api.renameEditor(e.id, v.trim())))} />
-                    <span class="cpath" title={e.path ?? ''}>{e.path}</span>
-                    <IconButton icon="close" label="Remove" size="sm" disabled={readonly} onclick={() => editorCall(editors.apply(api.removeEditor(e.id)))} />
-                  </div>
-                {/each}
-                <div class="root">
-                  <TextInput mono bind:value={newEditor} placeholder="Path to a program" disabled={readonly} onenter={() => addEditor()} />
-                  {#if newEditor.trim()}
-                    <IconButton icon="add" label="Add" size="sm" disabled={readonly} onclick={() => addEditor()} />
-                  {:else}
-                    <Button size="sm" icon="folder_open" loading={browsing} disabled={readonly} onclick={browseEditor}>Browse</Button>
-                  {/if}
-                </div>
-              </div>
-            {/snippet}
-          </Field>
-        </div>
-      </Card>
-    {/if}
-
-    <Card title="Civitai" icon="cloud_download">
-      <div class="stack">
-        <Field label="API token" info="Most downloads need one. Create it in your Civitai account settings.">
-          {#snippet children(id)}
-            <TextInput {id} type="password" autocomplete="off" bind:value={token} disabled={readonly} onchange={saveToken} />
-          {/snippet}
-        </Field>
-        <div class="line">
-          <span class="lbl">Show NSFW <InfoTip text="Include adult content when browsing Civitai." /></span>
-          <Toggle checked={s.showNsfw} disabled={readonly} aria-label="Show NSFW" onchange={(v) => save({ showNsfw: v })} />
-        </div>
-        <div class="line">
-          <span class="lbl">Identify models <InfoTip text="Hash new local models in the background to find them on Civitai (names, trigger words), and check daily for newer versions." /></span>
-          <Toggle checked={s.autoIdentify} disabled={readonly} aria-label="Identify models" onchange={(v) => save({ autoIdentify: v })} />
-        </div>
-      </div>
-    </Card>
-
-    <Card title="Generation" icon="memory">
-      <div class="stack">
-        <div class="line">
-          <span class="lbl">Preview every <InfoTip text="Steps between live previews. Lower is smoother but slower." /></span>
-          <div class="num">
-            <NumberField
-              value={s.previewEvery}
-              min={1}
-              max={20}
-              step={1}
-              suffix="steps"
-              disabled={readonly}
-              onchange={(v) => save({ previewEvery: v })}
-            />
-          </div>
-        </div>
-        <div class="line">
-          <span class="lbl">Keep models loaded <InfoTip text="Faster next run, but holds VRAM while idle." /></span>
-          <Toggle checked={s.keepModelsLoaded} disabled={readonly} aria-label="Keep models loaded" onchange={(v) => save({ keepModelsLoaded: v })} />
-        </div>
-        <div class="line">
-          <span class="lbl">Low VRAM <InfoTip text="Offloads parts of the model to system memory. Slower, fits smaller GPUs." /></span>
-          <Toggle checked={s.lowVram} disabled={readonly} aria-label="Low VRAM" onchange={(v) => save({ lowVram: v })} />
-        </div>
-        <div class="line">
-          <span class="lbl">NVIDIA optimizations <InfoTip text="TF32 and fp16 accumulation matmuls, fp16 Anima. Faster on RTX cards, tiny numeric differences." /></span>
-          <Toggle
-            checked={s.nvidiaOptimizations}
-            disabled={readonly}
-            aria-label="NVIDIA optimizations"
-            onchange={(v) => save({ nvidiaOptimizations: v })}
-          />
-        </div>
-      </div>
-    </Card>
+    <nav class="side" aria-label="Settings">
+      <h1>Settings</h1>
+      {#each tabs as t (t.value)}
+        <button type="button" class="tb" class:on={tab === t.value} aria-current={tab === t.value ? 'page' : undefined} onclick={() => go(t.value)}>
+          <span class="icon" class:fill={tab === t.value}>{t.icon}</span>{t.label}
+        </button>
+      {/each}
+      <span class="grow"></span>
+      <div class="about"><Logo size={22} wordmark /></div>
+    </nav>
   {/if}
-  <div class="about"><Logo size={26} wordmark /></div>
+
+  <div class="content">
+    <div class="inner">
+      {#if error}
+        <EmptyState icon="cloud_off" title="Could not load settings" description={error}>
+          <Button icon="refresh" onclick={load}>Retry</Button>
+        </EmptyState>
+      {:else if !s}
+        <div class="skel">
+          <Skeleton height="120px" radius="var(--r-lg)" />
+          <Skeleton height="180px" radius="var(--r-lg)" />
+        </div>
+      {:else}
+        {#if readonly}
+          <div class="ro">
+            <span class="icon">lock</span>
+            Read only
+            <InfoTip text="Settings can only be changed from the machine running Somnia." />
+          </div>
+        {/if}
+
+        {#if tab === 'generation'}
+          <Card title="Generation" icon="memory">
+            <div class="stack">
+              <div class="line">
+                <span class="lbl">Preview every <InfoTip text="Steps between live previews. Lower is smoother but slower." /></span>
+                <div class="num">
+                  <NumberField
+                    value={s.previewEvery}
+                    min={1}
+                    max={20}
+                    step={1}
+                    suffix="steps"
+                    disabled={readonly}
+                    onchange={(v) => save({ previewEvery: v })}
+                  />
+                </div>
+              </div>
+              <div class="line">
+                <span class="lbl">Keep models loaded <InfoTip text="Faster next run, but holds VRAM while idle." /></span>
+                <Toggle checked={s.keepModelsLoaded} disabled={readonly} aria-label="Keep models loaded" onchange={(v) => save({ keepModelsLoaded: v })} />
+              </div>
+              <div class="line">
+                <span class="lbl">Low VRAM <InfoTip text="Offloads parts of the model to system memory. Slower, fits smaller GPUs." /></span>
+                <Toggle checked={s.lowVram} disabled={readonly} aria-label="Low VRAM" onchange={(v) => save({ lowVram: v })} />
+              </div>
+              <div class="line">
+                <span class="lbl">NVIDIA optimizations <InfoTip text="TF32 and fp16 accumulation matmuls, fp16 Anima. Faster on RTX cards, tiny numeric differences." /></span>
+                <Toggle
+                  checked={s.nvidiaOptimizations}
+                  disabled={readonly}
+                  aria-label="NVIDIA optimizations"
+                  onchange={(v) => save({ nvidiaOptimizations: v })}
+                />
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Image tools" icon="background_replace">
+            <div class="stack">
+              <div class="line">
+                <span class="lbl">Background removal <InfoTip text="ToonOut is BiRefNet fine-tuned on anime, cleanest edges and hair gaps (500 MB download on first use). ISNet is smaller and faster but leaks background between strands." /></span>
+                <div class="sel">
+                  <Select
+                    size="sm"
+                    items={[
+                      { value: 'toonout', label: 'ToonOut' },
+                      { value: 'isnet', label: 'ISNet' },
+                    ]}
+                    value={s.bgModel}
+                    disabled={readonly}
+                    onchange={(v: string) => save({ bgModel: v })}
+                  />
+                </div>
+              </div>
+            </div>
+          </Card>
+        {:else if tab === 'network'}
+          <Card title="Network" icon="lan">
+            <div class="stack">
+              <div class="line">
+                <span class="lbl">Local network access <InfoTip text="Lets phones and other computers on your network open Somnia. Turn off when not needed." /></span>
+                <Toggle checked={s.lanEnabled} disabled={readonly} aria-label="Local network access" onchange={(v) => save({ lanEnabled: v })} />
+              </div>
+              {#if s.lanEnabled}
+                {#if urls.length}
+                  <div class="lan">
+                    <div class="urls">
+                      {#each urls as u, i}
+                        <div class="url" class:sel={i === qrFor}>
+                          <button type="button" class="ub" onclick={() => (qrFor = i)}>{u}</button>
+                          <IconButton icon="content_copy" label="Copy" size="sm" onclick={() => copy(u)} />
+                        </div>
+                      {/each}
+                    </div>
+                    {#if qr}<img class="qr" src={qr} alt="QR code for {urls[qrFor] ?? urls[0]}" width="150" height="150" />{/if}
+                  </div>
+                {:else}
+                  <div class="muted">No network addresses found</div>
+                {/if}
+                <LanSecurity settings={s} {readonly} {local} {save} />
+              {/if}
+            </div>
+          </Card>
+
+            <NotificationsCard />
+        {:else if tab === 'storage'}
+          <Card title="Storage" icon="folder">
+            <div class="stack">
+              <Field label="Model folders" info="Folders scanned for checkpoints, LoRAs, VAEs and so on.">
+                {#snippet children()}
+                  <div class="roots">
+                    {#each s!.modelRoots as r, i (r + i)}
+                      <div class="root">
+                        <TextInput mono value={r} disabled={readonly} onchange={(v) => setRoot(i, v)} />
+                        <IconButton icon="close" label="Remove" size="sm" disabled={readonly} onclick={() => removeRoot(i)} />
+                      </div>
+                    {/each}
+                    <div class="root">
+                      <TextInput mono bind:value={newRoot} placeholder="Add folder" disabled={readonly} onenter={addRoot} />
+                      <IconButton icon="add" label="Add" size="sm" disabled={readonly || !newRoot.trim()} onclick={addRoot} />
+                    </div>
+                  </div>
+                {/snippet}
+              </Field>
+              <Field label="Download folder" info="Where Civitai downloads are saved.">
+                {#snippet children(id)}
+                  <TextInput {id} mono value={s!.downloadRoot} disabled={readonly} onchange={(v) => save({ downloadRoot: v })} />
+                {/snippet}
+              </Field>
+              <Field label="Output folder" info="Where generated images are written.">
+                {#snippet children(id)}
+                  <TextInput {id} mono value={s!.outputDir} disabled={readonly} onchange={(v) => save({ outputDir: v })} />
+                {/snippet}
+              </Field>
+            </div>
+          </Card>
+        {:else if tab === 'sources'}
+          <Card title="Civitai" icon="cloud_download">
+            <div class="stack">
+              <Field label="API token" info="Most downloads need one. Create it in your Civitai account settings.">
+                {#snippet children(id)}
+                  <TextInput {id} type="password" autocomplete="off" bind:value={token} disabled={readonly} onchange={saveToken} />
+                {/snippet}
+              </Field>
+              <div class="line">
+                <span class="lbl">Show NSFW <InfoTip text="Include adult content when browsing Civitai." /></span>
+                <Toggle checked={s.showNsfw} disabled={readonly} aria-label="Show NSFW" onchange={(v) => save({ showNsfw: v })} />
+              </div>
+              <div class="line">
+                <span class="lbl">Identify models <InfoTip text="Hash new local models in the background to find them on Civitai (names, trigger words), and check daily for newer versions." /></span>
+                <Toggle checked={s.autoIdentify} disabled={readonly} aria-label="Identify models" onchange={(v) => save({ autoIdentify: v })} />
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Hugging Face" icon="hub">
+            <div class="stack">
+              <Field label="Access token" info="Only needed for gated repos. Create a read token in your Hugging Face account settings and accept the repo license there.">
+                {#snippet children(id)}
+                  <TextInput {id} type="password" autocomplete="off" bind:value={hfToken} disabled={readonly} onchange={saveHfToken} />
+                {/snippet}
+              </Field>
+            </div>
+          </Card>
+        {:else if tab === 'editors' && editors.list}
+          <Card title="Image editor" icon="edit">
+            <div class="stack">
+              {#if editors.list.editors.length}
+                <Field label="Open images in" info="Adds an open button wherever you view an image. Only shown on this machine.">
+                  {#snippet children(id)}
+                    <div class="root">
+                      <Select
+                        {id}
+                        items={editorItems}
+                        value={s!.imageEditor}
+                        disabled={readonly}
+                        onchange={(v: string) => save({ imageEditor: v })}
+                        style="flex: 1; min-width: 0"
+                      >
+                        {#snippet item(it)}
+                          <span class="ed">
+                            {#if it.value && it.value !== 'none'}
+                              <img src={api.editorIconUrl(it.value)} alt="" width="18" height="18" />
+                            {:else}
+                              <span class="icon">{it.value === 'none' ? 'block' : 'auto_awesome'}</span>
+                            {/if}
+                            {it.label}
+                          </span>
+                        {/snippet}
+                      </Select>
+                      <IconButton icon="refresh" label="Scan again" size="sm" onclick={() => editors.load(true)} />
+                    </div>
+                  {/snippet}
+                </Field>
+              {:else}
+                <div class="line">
+                  <span class="muted">No Photoshop, Krita or Paint.NET found</span>
+                  <Button size="sm" icon="refresh" onclick={() => editors.load(true)}>Scan again</Button>
+                </div>
+              {/if}
+              <Field label="Other editors" info="Add any program that opens image files. Pick its .exe, or paste its path.">
+                {#snippet children()}
+                  <div class="roots">
+                    {#each customEditors as e (e.id)}
+                      <div class="root cust">
+                        <img src={api.editorIconUrl(e.id)} alt="" width="18" height="18" onerror={(ev) => ((ev.currentTarget as HTMLImageElement).style.visibility = 'hidden')} />
+                        <TextInput value={e.name} disabled={readonly} onchange={(v) => v.trim() && editorCall(editors.apply(api.renameEditor(e.id, v.trim())))} />
+                        <span class="cpath" title={e.path ?? ''}>{e.path}</span>
+                        <IconButton icon="close" label="Remove" size="sm" disabled={readonly} onclick={() => editorCall(editors.apply(api.removeEditor(e.id)))} />
+                      </div>
+                    {/each}
+                    <div class="root">
+                      <TextInput mono bind:value={newEditor} placeholder="Path to a program" disabled={readonly} onenter={() => addEditor()} />
+                      {#if newEditor.trim()}
+                        <IconButton icon="add" label="Add" size="sm" disabled={readonly} onclick={() => addEditor()} />
+                      {:else}
+                        <Button size="sm" icon="folder_open" loading={browsing} disabled={readonly} onclick={browseEditor}>Browse</Button>
+                      {/if}
+                    </div>
+                  </div>
+                {/snippet}
+              </Field>
+            </div>
+          </Card>
+        {:else if tab === 'plugins'}
+          <PluginsCard {readonly} />
+        {/if}
+      {/if}
+      {#if mobile.current}<div class="about"><Logo size={26} wordmark /></div>{/if}
+    </div>
+  </div>
 </div>
 
 <style>
@@ -350,31 +439,108 @@
     padding: var(--sp-5) 0 var(--sp-3);
     color: var(--text-faint);
   }
+  .side .about {
+    justify-content: flex-start;
+    padding: var(--sp-3) var(--sp-2);
+  }
   .about :global(.logo) {
     color: var(--text-faint);
   }
   .page {
+    display: flex;
     height: 100%;
+    min-height: 0;
+  }
+  .page.m {
+    flex-direction: column;
+  }
+  .side {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 220px;
+    padding: var(--sp-4) var(--sp-3);
+    border-right: 1px solid var(--hairline);
+    background: var(--grad-1);
+  }
+  .side h1 {
+    padding: var(--sp-2) var(--sp-2) var(--sp-3);
+  }
+  .tb {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    height: 36px;
+    padding: 0 var(--sp-2);
+    border: 0;
+    border-radius: var(--r-md);
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: var(--fs-sm);
+    text-align: left;
+    cursor: pointer;
+  }
+  .tb .icon {
+    font-size: 20px;
+  }
+  .tb:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  .tb:active {
+    transform: scale(0.98);
+  }
+  .tb.on {
+    background: var(--grad-3);
+    box-shadow: var(--sheen);
+    color: var(--text);
+  }
+  .grow {
+    flex: 1;
+  }
+  .content {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
     overflow-y: auto;
-    padding: var(--sp-4);
-    padding-bottom: var(--sp-6);
+  }
+  .inner {
     display: flex;
     flex-direction: column;
     gap: var(--sp-4);
     max-width: 680px;
     width: 100%;
     margin: 0 auto;
+    padding: var(--sp-5) var(--sp-4) var(--sp-6);
+  }
+  .m .inner {
+    padding-top: var(--sp-3);
   }
   .hrow {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
-    margin: var(--sp-2) 0 0;
+    padding: var(--sp-4) var(--sp-4) var(--sp-2);
+  }
+  .mtabs {
+    flex: none;
+    padding: 0 var(--sp-4);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .mtabs :global(.tabs) {
+    width: max-content;
+    min-width: 100%;
   }
   h1 {
     margin: 0;
     font-size: var(--fs-lg);
     font-weight: 600;
+  }
+  .sel {
+    width: 150px;
   }
   .skel,
   .stack {

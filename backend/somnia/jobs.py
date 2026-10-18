@@ -27,6 +27,8 @@ _paused = False
 _repeat: dict[str, dict] = {}
 # called with the finished job dict (done, error or cancelled) from the worker thread
 on_finish: list = []
+# called with params before jobs are queued, may return replacement params (plugins)
+on_submit: list = []
 
 
 def queue_list() -> list[dict]:
@@ -68,6 +70,11 @@ def _seeds(params: dict, count: int) -> list[tuple[int, int | None]]:
 
 def submit(params: dict, count: int = 1, meta: list[dict] | None = None, repeat: bool = False) -> list[str]:
     # meta, when given, is one dict per job merged into the job record (e.g. grid cells)
+    for fn in list(on_submit):
+        try:
+            params = fn(params) or params
+        except Exception as e:
+            print(f"[somnia] submit hook failed: {e}")
     count = 1 if repeat else len(meta) if meta else max(1, int(count))
     seeds = _seeds(params, 1 if meta else count) * (count if meta else 1)
     ids = []

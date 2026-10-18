@@ -373,7 +373,7 @@ def trash(model_id: str) -> None:
     TRASH_DIR.mkdir(parents=True, exist_ok=True)
     stem = str(p.with_suffix(""))
     stamp = str(int(time.time()))
-    sidecars = [".civitai.json", ".civitai.info", ".metadata.json", ".sha256"] + PREVIEW_EXTS
+    sidecars = [".civitai.json", ".hf.json", ".civitai.info", ".metadata.json", ".sha256"] + PREVIEW_EXTS
     for f in [p] + [Path(stem + e) for e in sidecars]:
         if f.exists():
             shutil.move(str(f), str(TRASH_DIR / f"{stamp}_{f.name}"))

@@ -2,6 +2,7 @@
   import { Tabs } from '$lib/ui'
   import Civitai from './Civitai.svelte'
   import Downloads from './Downloads.svelte'
+  import HuggingFace from './HuggingFace.svelte'
   import Library from './Library.svelte'
   import { models } from './store.svelte'
 
@@ -14,11 +15,12 @@
     items={[
       { value: 'library', label: 'Library', icon: 'folder' },
       { value: 'civitai', label: 'Civitai', icon: 'cloud' },
+      { value: 'hf', label: 'Hugging Face', icon: 'hub' },
     ]}
     bind:value={tab}
   />
   <Downloads />
-  {#if tab === 'library'}<Library />{:else}<Civitai />{/if}
+  {#if tab === 'library'}<Library />{:else if tab === 'hf'}<HuggingFace />{:else}<Civitai />{/if}
 </div>
 
 <style>

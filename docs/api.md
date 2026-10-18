@@ -25,7 +25,7 @@ Types are defined in `web/src/lib/types.ts` (camelCase JSON). Python side uses t
 | POST | `/api/gallery/albums/remove` | `{ ids, album }` | `GalleryItem[]` |
 | PUT | `/api/gallery/albums/{name}` | `{ name }` | `GalleryAlbum[]`; renames (merges into an existing album of that name) |
 | DELETE | `/api/gallery/albums/{name}` | | `GalleryAlbum[]`; removes the album from all items (images stay) |
-| POST | `/api/gallery/{id}/remove-bg` | | `GalleryItem`; anime ISNet (skytnt/anime-seg `isnetis.onnx`, onnxruntime, CUDA when available) cuts the background, saves an RGBA png (`alpha: true`, RGBA webp thumb, params copied, `sourceId`) stacked under the source's root, broadcasts `gallery_item`; requests are serialized |
+| POST | `/api/gallery/{id}/remove-bg` | | `GalleryItem`; `Settings.bgModel` cuts the background (`toonout`, default: BiRefNet fine-tuned on anime, onnx export `sprited/birefnet-toonout-onnx` fp16, 1024 square resize with imagenet normalization; `isnet`: skytnt/anime-seg `isnetis.onnx`, letterboxed; onnxruntime, CUDA when available, one session resident), saves an RGBA png (`alpha: true`, RGBA webp thumb, params copied, `sourceId`) stacked under the source's root, broadcasts `gallery_item`; requests are serialized |
 | POST | `/api/gallery/{id}/upload` | | `UploadResult` (server side copy into uploads, for init images) |
 | GET | `/api/gallery/{id}/stack` | | `GalleryItem[]` root first, then children oldest first (id may be any member) |
 | PUT | `/api/gallery/{id}/cover` | | root `GalleryItem` with stack fields; makes stack member `id` (root or child) its stack's cover (`coverId` on the root) |
@@ -112,6 +112,23 @@ Family detection reads the safetensors header (SDXL keys like `conditioner.` / `
 
 Downloads write `<file>.civitai.json` (model + version json) and `<file>.preview.(png|jpeg|webp)` next to the model. Existing `.civitai.info` / `.metadata.json` sidecars from other UIs are read too.
 
+## Hugging Face (owner: civitai/models)
+| GET | `/api/hf/search` | `HfSearchQuery` (`query, category, sort, cursor, limit`) | `HfSearchResult`; repos with at least one file of `category` (or any recognized model file) |
+| GET | `/api/hf/repo/{owner/name}` | `?category` | `HfRepoDetail` (files with detected kind, size, installed; readme text) |
+| POST | `/api/hf/download` | `{ repo, path, kind, sub?, size? }` | `Download` (`source: 'hf'`, `repo`, `file`); 409 when the file exists |
+
+`somnia/hf.py`: search uses the hub `/api/models` with `expand[]=siblings` and classifies each file (`classify`) by comfy folder names in its path (`diffusion_models/`, `vae/`, `upscale_models/`, `ultralytics/bbox`...), name patterns (`4x_`, esrgan, `vae`, `clip_l`, `lora`, `-seg`), repo tags (ultralytics, lora, textual-inversion) and size; diffusers subfolders, shards and gguf are skipped. Up to 4 hub pages are read per request until `limit` repos match. Empty queries browse a per category default (e.g. `filter=ultralytics` for bbox/segm, `upscale` for upscalers); an upscaler/vae query with no hits retries with that word added (cursor prefixed `s:`). Downloads go to `downloadRoot/<kind folder>` (`ultralytics/bbox|segm` for detectors), generic names (`model.safetensors`) become `<repo name>.safetensors`, `<file>.hf.json` records the source. `Settings.hfToken` (masked like `civitaiToken`) is sent for gated repos.
+
+## Plugins (owner: server)
+| GET | `/api/plugins` | | `PluginInfo[]` |
+| POST | `/api/plugins/rescan` | | `PluginInfo[]` (loopback only) |
+| POST | `/api/plugins/{id}/reload` | | `PluginInfo` (loopback only) |
+| PUT | `/api/plugins/{id}` | `{ enabled }` | `PluginInfo` (loopback only) |
+| GET | `/api/plugins/{id}/web/{path}` | | files next to the plugin's web entry |
+| * | `/api/ext/{id}/...` | | the plugin's own backend routes |
+
+`somnia/plugins.py` polls `plugins/` every second and loads, reloads or unloads plugins whose files changed (`PluginInfo.rev`), broadcasting `{type:'plugins', plugins}`; plugin events arrive as `{type:'plugin', plugin, event, data}`. The client (`lib/plugins.svelte.ts`) re-imports a web entry whenever its `rev` changes. See `docs/plugins.md`.
+
 ## Tags (owner: tags)
 | GET | `/api/tags/search` | `?q&limit=20` | `Tag[]` (prefix + alias match, sorted by count; `q` uses spaces or underscores) |
 | GET | `/api/tags/wiki/{name}` | | `TagWiki` (danbooru wiki, cached on disk; body is plain text with dtext stripped to light markdown) |
@@ -143,7 +160,7 @@ Detected on windows: every Adobe Photoshop version (named without "Adobe", newes
 `somnia/grids.py`: every combination is queued in z, y, x order through `jobs.submit(meta=...)` (jobs carry `grid: {id, x, y, z}`), `batchSize` forced to 1, one shared seed unless an axis sets `seed`. A cell's patch is the deep merge of its x/y/z value patches; the backend is generic except two ops: `"$sr": [search, replace]` replaces text in prompt, negative and `segments` (applied in axis order), `"$lora": {id, weight}` sets one lora weight (added when missing). A `variation` patch gets a concrete variation seed. Cells finish through `jobs.on_finish`; queued cells whose job disappears (removed from the queue, restart) become `cancelled` after ~3s. Each change is persisted (sqlite `grids`) and broadcast as `{type:'grid', grid}`. Once no cell is queued the grid becomes `composing`, then per z value a labeled image (x labels on top, y labels on the left, z title) is saved as a gallery item (`grid: {id, z}`, `coverId` = itself) and the cell images of that z are re-filed as its stack children; `status` ends `done` (or `failed` when no cell produced an image) and the items are broadcast as `gallery_item`.
 
 ## Websocket `/ws`
-On connect the server sends `{type:'snapshot', ...Snapshot}` immediately, then deltas (`WsMessage` in types.ts). `progress` is throttled to ~10/s; `preview` is a `data:image/jpeg;base64,...` url and only present on messages that carry a new preview. `step`/`total` always describe the current phase (sampling steps, upscaler tiles, decode tiles, per-detection detailer steps); `label` is an optional human readable sub-phase (e.g. `Detailer face 2/3`, `Upscaling`, `Second pass`) or null. Previews are decoded from the predicted clean image (x0) with a tiny VAE. During detailer and tiled refine steps `region` (`{x, y, w, h}`, fractions of the whole image) marks the area being rendered and `preview` is the whole image (up to 1024px) with the area's preview pasted in; otherwise `region` is null. Clients never control job lifetime by connecting or disconnecting. `identify` carries civitai hash lookup progress, `model_defaults` the full defaults record after any change.
+On connect the server sends `{type:'snapshot', ...Snapshot}` immediately, then deltas (`WsMessage` in types.ts). `progress` is throttled to ~10/s; `preview` is a `data:image/jpeg;base64,...` url and only present on messages that carry a new preview. `step`/`total` always describe the current phase (sampling steps, upscaler tiles, decode tiles, per-detection detailer steps); `label` is an optional human readable sub-phase (e.g. `Detailer face 2/3`, `Upscaling`, `Second pass`) or null. Previews are decoded from the predicted clean image (x0) with a tiny VAE. During detailer and tiled refine steps `region` (`{x, y, w, h}`, fractions of the whole image) marks the area being rendered and `preview` is the whole image (up to 1024px) with the area's preview pasted in; otherwise `region` is null. Clients never control job lifetime by connecting or disconnecting. `identify` carries civitai hash lookup progress, `model_defaults` the full defaults record after any change, `plugins` the plugin list after any load/unload.
 
 ## Python module contracts
 - `somnia.config`: `DATA_DIR`, `ROOT`, `settings()` -> `Settings` dataclass, `update_settings(**kw)`.

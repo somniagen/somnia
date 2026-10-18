@@ -11,11 +11,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, config, jobs, net
+from . import auth, config, jobs, net, plugins
 from .hub import hub
 from .hub import router as hub_router
 
-ROUTERS = ["jobs", "gallery", "settings", "prompts", "models", "civitai", "tags", "inpaint", "editors", "grids", "auth", "push"]
+ROUTERS = ["jobs", "gallery", "settings", "prompts", "models", "civitai", "hf", "tags", "inpaint", "editors", "grids", "auth", "push", "plugins"]
 DIST = config.ROOT / "web" / "dist"
 # windows registry mime types are unreliable, service workers and manifests need these exact ones
 MIME = {".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".webmanifest": "application/manifest+json",
@@ -87,6 +87,8 @@ def create_app() -> FastAPI:
         r = getattr(m, "router", None)
         if r is not None:
             app.include_router(r)
+
+    app.mount("/api/ext", plugins.Dispatch(), name="plugin-routes")
 
     if DIST.exists():
         @app.get("/{path:path}", include_in_schema=False)

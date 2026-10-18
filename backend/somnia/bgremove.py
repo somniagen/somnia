@@ -9,30 +9,47 @@ from PIL import Image
 
 log = logging.getLogger(__name__)
 
-REPO = "skytnt/anime-seg"
-FILE = "isnetis.onnx"
+# toonout: birefnet fine-tuned on anime (onnx export of joelseytre/toonout), isnet: skytnt anime-seg, smaller and faster
+MODELS = {
+    "toonout": {"repo": "sprited/birefnet-toonout-onnx", "file": "birefnet-toonout-fp16.onnx", "letterbox": False, "norm": True},
+    "isnet": {"repo": "skytnt/anime-seg", "file": "isnetis.onnx", "letterbox": True, "norm": False},
+}
+DEFAULT = "toonout"
 SIZE = 1024
+MEAN = np.array([0.485, 0.456, 0.406], np.float32)
+STD = np.array([0.229, 0.224, 0.225], np.float32)
 
 _lock = threading.Lock()
-_sessions: dict[bool, object] = {}
+_sessions: dict[tuple[str, bool], object] = {}
 
 
-def _model_path() -> str:
+def model_name() -> str:
+    from .config import settings
+
+    name = settings().bgModel
+    return name if name in MODELS else DEFAULT
+
+
+def _model_path(name: str) -> str:
     from huggingface_hub import hf_hub_download
 
     from .engine.previews import HF_CACHE
 
+    m = MODELS[name]
     try:
-        return hf_hub_download(REPO, FILE, cache_dir=str(HF_CACHE), local_files_only=True)
+        return hf_hub_download(m["repo"], m["file"], cache_dir=str(HF_CACHE), local_files_only=True)
     except Exception:
-        return hf_hub_download(REPO, FILE, cache_dir=str(HF_CACHE))
+        log.info("downloading background removal model %s", name)
+        return hf_hub_download(m["repo"], m["file"], cache_dir=str(HF_CACHE))
 
 
-def _session(cpu: bool = False):
+def _session(name: str, cpu: bool = False):
     with _lock:
-        s = _sessions.get(cpu)
+        s = _sessions.get((name, cpu))
         if s is not None:
             return s
+        # one model resident at a time
+        _sessions.clear()
         # torch ships the cuda/cudnn dlls onnxruntime needs, so load it first
         import torch  # noqa: F401
         import onnxruntime as ort
@@ -47,27 +64,41 @@ def _session(cpu: bool = False):
             providers.insert(0, ("CUDAExecutionProvider", {"arena_extend_strategy": "kSameAsRequested"}))
         opts = ort.SessionOptions()
         opts.log_severity_level = 3
+        path = _model_path(name)
         try:
-            s = ort.InferenceSession(_model_path(), opts, providers=providers)
+            s = ort.InferenceSession(path, opts, providers=providers)
         except Exception as e:
             if cpu:
                 raise
             log.warning("cuda session failed (%s), using cpu", e)
-            s = ort.InferenceSession(_model_path(), opts, providers=["CPUExecutionProvider"])
-        _sessions[cpu] = s
+            s = ort.InferenceSession(path, opts, providers=["CPUExecutionProvider"])
+        _sessions[(name, cpu)] = s
         return s
 
 
-def _predict(rgb: np.ndarray, cpu: bool) -> np.ndarray:
+def _predict(rgb: np.ndarray, cpu: bool, name: str) -> np.ndarray:
+    m = MODELS[name]
+    if m["letterbox"]:
+        return _predict_letterbox(rgb, cpu, name)
+    # plain resize with imagenet normalization like birefnet, returns a float mask at the input size
+    h0, w0 = rgb.shape[:2]
+    x = cv2.resize(rgb, (SIZE, SIZE), interpolation=cv2.INTER_AREA)
+    if m["norm"]:
+        x = (x - MEAN) / STD
+    s = _session(name, cpu)
+    out = s.run(None, {s.get_inputs()[0].name: x.transpose(2, 0, 1)[None].astype(np.float32)})[0][0, 0]
+    return np.clip(cv2.resize(out.astype(np.float32), (w0, h0), interpolation=cv2.INTER_CUBIC), 0, 1)
+
+
+def _predict_letterbox(rgb: np.ndarray, cpu: bool, name: str) -> np.ndarray:
     # letterboxes to SIZE x SIZE like anime-seg, returns a float mask at the input size
     h0, w0 = rgb.shape[:2]
     h, w = (SIZE, max(1, round(SIZE * w0 / h0))) if h0 > w0 else (max(1, round(SIZE * h0 / w0)), SIZE)
     ph, pw = SIZE - h, SIZE - w
     x = np.zeros((SIZE, SIZE, 3), np.float32)
     x[ph // 2 : ph // 2 + h, pw // 2 : pw // 2 + w] = cv2.resize(rgb, (w, h), interpolation=cv2.INTER_AREA)
-    s = _session(cpu)
-    name = s.get_inputs()[0].name
-    out = s.run(None, {name: x.transpose(2, 0, 1)[None]})[0][0, 0]
+    s = _session(name, cpu)
+    out = s.run(None, {s.get_inputs()[0].name: x.transpose(2, 0, 1)[None]})[0][0, 0]
     out = out[ph // 2 : ph // 2 + h, pw // 2 : pw // 2 + w]
     return np.clip(cv2.resize(out, (w0, h0), interpolation=cv2.INTER_CUBIC), 0, 1)
 
@@ -105,9 +136,10 @@ def _foreground(img: np.ndarray, alpha: np.ndarray) -> np.ndarray:
     return f
 
 
-def remove_background(img: Image.Image, cpu: bool = False) -> Image.Image:
+def remove_background(img: Image.Image, cpu: bool = False, model: str | None = None) -> Image.Image:
+    name = model if model in MODELS else model_name()
     rgb = np.asarray(img.convert("RGB"), np.float32) / 255
-    mask = _predict(rgb, cpu)
+    mask = _predict(rgb, cpu, name)
     # refine on a capped working size to keep the 3x3 solve cheap on big upscales
     h, w = mask.shape
     k = min(1.0, 2048 / max(h, w))

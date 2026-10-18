@@ -325,6 +325,50 @@ export interface CivitaiSearchResult {
   nextCursor: string | null
 }
 
+export type HfCategory = '' | 'checkpoint' | 'lora' | 'vae' | 'text_encoder' | 'upscaler' | 'bbox' | 'segm' | 'embedding'
+
+export interface HfSearchQuery {
+  query?: string
+  category?: HfCategory
+  sort?: 'downloads' | 'likes' | 'trendingScore' | 'lastModified'
+  cursor?: string
+  limit?: number
+}
+
+export interface HfRepo {
+  id: string
+  author: string
+  downloads: number
+  likes: number
+  lastModified: string | null
+  gated: boolean
+  tags: string[]
+  // detected file kinds, detectors as 'bbox' / 'segm'
+  kinds: string[]
+  // files matching the searched category
+  files: number
+}
+
+export interface HfFile {
+  path: string
+  size: number
+  // null when the file type was not recognized
+  kind: ModelKind | null
+  sub: 'bbox' | 'segm' | null
+  installed: boolean | null
+}
+
+export interface HfRepoDetail extends Omit<HfRepo, 'kinds' | 'files'> {
+  sha: string | null
+  readme: string
+  files: HfFile[]
+}
+
+export interface HfSearchResult {
+  items: HfRepo[]
+  nextCursor: string | null
+}
+
 export type DownloadStatus = 'queued' | 'downloading' | 'done' | 'error' | 'cancelled'
 
 export interface Download {
@@ -338,6 +382,10 @@ export interface Download {
   speed: number
   status: DownloadStatus
   error: string | null
+  source?: 'civitai' | 'hf'
+  // hugging face repo id and file path
+  repo?: string
+  file?: string
 }
 
 export type TagCategory = 0 | 1 | 3 | 4 | 5
@@ -408,12 +456,15 @@ export interface Settings {
   downloadRoot: string
   outputDir: string
   civitaiToken: string
+  hfToken: string
   showNsfw: boolean
   autoIdentify: boolean
   previewEvery: number
   keepModelsLoaded: boolean
   lowVram: boolean
   nvidiaOptimizations: boolean
+  // background removal model: 'toonout' (birefnet anime) or 'isnet'
+  bgModel: string
   imageEditor: string
   customEditors: { name: string; path: string }[]
 }
@@ -461,6 +512,22 @@ export interface Presets {
   families: Record<Family, FamilyInfo>
 }
 
+export interface PluginInfo {
+  id: string
+  name: string
+  version: string
+  description: string
+  enabled: boolean
+  loaded: boolean
+  error: string | null
+  // has a plugin.py
+  backend: boolean
+  // web entry file name, served from /api/plugins/{id}/web/
+  web: string | null
+  // changes whenever any plugin file changes
+  rev: string
+}
+
 export interface Snapshot {
   queue: Job[]
   // the worker holds off starting queued jobs (the running one finishes)
@@ -485,3 +552,6 @@ export type WsMessage =
   | { type: 'gallery_item'; item: GalleryItem }
   | { type: 'grid'; grid: Grid }
   | { type: 'grid_removed'; id: string }
+  | { type: 'plugins'; plugins: PluginInfo[] }
+  // ctx.broadcast(event, data) from a plugin backend
+  | { type: 'plugin'; plugin: string; event: string; data: unknown }

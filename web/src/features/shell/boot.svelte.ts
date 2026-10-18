@@ -1,5 +1,6 @@
 import { auth } from '$lib/auth.svelte'
 import { live } from '$lib/live.svelte'
+import { plugins } from '$lib/plugins.svelte'
 import { session } from '$lib/session.svelte'
 
 class Boot {
@@ -11,6 +12,7 @@ class Boot {
     if (this.started || auth.locked) return
     this.started = true
     live.start()
+    plugins.start()
     this.load()
   }
 

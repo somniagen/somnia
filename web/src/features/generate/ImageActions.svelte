@@ -2,6 +2,7 @@
   import OpenInEditor from '$features/editors/OpenInEditor.svelte'
   import type { GalleryItem } from '$lib/types'
   import { IconButton, mobile, toast } from '$lib/ui'
+  import { plugins } from '$lib/plugins.svelte'
   import { download, img2img, openInpaint, removeBackground, removeImage, reuse, upscaleAgain, variations } from './actions.svelte'
 
   let {
@@ -60,6 +61,19 @@
     disabled={cutting}
     onclick={cutout}
   />
+  {#each plugins.actions as a (a.plugin + a.id)}
+    <IconButton
+      icon={a.icon || 'extension'}
+      label={a.label}
+      onclick={async () => {
+        try {
+          await a.run(item)
+        } catch (e) {
+          toast.error(a.label, { description: e instanceof Error ? e.message : String(e) })
+        }
+      }}
+    />
+  {/each}
   <IconButton icon="download" label="Download" onclick={() => download(item)} />
   <IconButton
     icon={armed ? 'delete_forever' : 'delete'}

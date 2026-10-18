@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { live } from '$lib/live.svelte'
+  import { plugins } from '$lib/plugins.svelte'
   import { GlowProgressBar, Toaster, mobile, toast, tooltip } from '$lib/ui'
   import Logo from './Logo.svelte'
   import StatusLine from './StatusLine.svelte'
@@ -16,6 +17,9 @@
     { hash: '#/models', icon: 'deployed_code', label: 'Models' },
     { hash: '#/settings', icon: 'settings', label: 'Settings' },
   ]
+
+  // plugin pages go in the desktop rail, on mobile they are opened from settings
+  const pluginNav = $derived(plugins.pages.map((p) => ({ hash: `#/p/${p.plugin}/${p.id}`, icon: p.icon || 'extension', label: p.title })))
 
   let flash = $state<'success' | 'error' | null>(null)
   let flashTimer: ReturnType<typeof setTimeout> | undefined
@@ -71,7 +75,7 @@
       <nav class="rail" aria-label="Main">
         <div class="logo"><Logo size={28} /></div>
         <div class="items">
-          {#each nav as n}
+          {#each [...nav.slice(0, -1), ...pluginNav, ...nav.slice(-1)] as n (n.hash)}
             <a href={n.hash} class="nb" class:on={active(n.hash)} aria-label={n.label} aria-current={active(n.hash) ? 'page' : undefined} use:tooltip={{ text: n.label, placement: 'right' }}>
               <span class="icon" class:fill={active(n.hash)}>{n.icon}</span>
             </a>

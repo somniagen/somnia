@@ -33,6 +33,8 @@ class Settings:
     downloadRoot: str = str(ROOT / "models")
     outputDir: str = str(ROOT / "outputs")
     civitaiToken: str = ""
+    # hugging face access token, needed for gated repos
+    hfToken: str = ""
     showNsfw: bool = False
     # hash new local models in the background and look them up on civitai
     autoIdentify: bool = True
@@ -40,6 +42,8 @@ class Settings:
     keepModelsLoaded: bool = True
     lowVram: bool = False
     nvidiaOptimizations: bool = True
+    # background removal model, see bgremove.MODELS
+    bgModel: str = "toonout"
     # external image editor id from /api/editors, "" picks the first detected, "none" hides the button
     imageEditor: str = ""
     # manually added editors: [{"name": str, "path": str}]

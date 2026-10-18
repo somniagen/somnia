@@ -188,7 +188,7 @@
 {#snippet genButtons()}
   <div class="gb">
     {#if running}
-      <Button variant="danger" icon="stop" onclick={cancel} aria-label="Cancel current">Cancel</Button>
+      <Button variant="danger" icon="stop" onclick={cancel} aria-label="Cancel current" class="stop">Cancel</Button>
     {/if}
     <Button variant="primary" icon="auto_awesome" full loading={busy} disabled={!ready} onclick={() => generate()} class="go">
       Generate
@@ -361,8 +361,11 @@
     flex: 1;
   }
   .gb :global(.go:not(:disabled)) {
-    height: 42px;
     font-weight: 600;
+  }
+  .gb :global(.go),
+  .gb :global(.stop) {
+    height: 42px;
   }
   .gb :global(.bulk) {
     height: 42px;

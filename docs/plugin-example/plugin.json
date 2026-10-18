@@ -1,0 +1,5 @@
+{
+  "name": "Hello",
+  "version": "0.1.0",
+  "description": "Example plugin: a page, an image action, a route and a job hook."
+}

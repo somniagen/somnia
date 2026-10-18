@@ -12,9 +12,10 @@ router = APIRouter(prefix="/api")
 
 def masked() -> dict:
     d = asdict(config.settings())
-    t = d.get("civitaiToken") or ""
-    if t:
-        d["civitaiToken"] = "****" + t[-4:]
+    for k in ("civitaiToken", "hfToken"):
+        t = d.get(k) or ""
+        if t:
+            d[k] = "****" + t[-4:]
     d["lanPassword"] = auth.MASK if d.get("lanPassword") else ""
     return d
 
@@ -28,9 +29,10 @@ def get_settings() -> dict:
 def patch_settings(request: Request, body: dict = Body(...)) -> dict:
     if not net.is_loopback(request.client.host if request.client else None):
         raise HTTPException(403, "settings can only be changed from this machine")
-    tok = body.get("civitaiToken")
-    if isinstance(tok, str) and tok.startswith("****"):
-        body.pop("civitaiToken")
+    for k in ("civitaiToken", "hfToken"):
+        tok = body.get(k)
+        if isinstance(tok, str) and tok.startswith("****"):
+            body.pop(k)
     pw = body.pop("lanPassword", None)
     if isinstance(pw, str) and pw != auth.MASK:
         body["lanPassword"] = auth.hash_password(pw) if pw else ""

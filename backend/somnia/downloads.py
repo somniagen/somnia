@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 
-from . import civitai, models
+from . import civitai, hf, models
 from .config import settings
 
 TYPE_MAP: dict[str, tuple[str, str]] = {
@@ -22,6 +22,7 @@ TYPE_MAP: dict[str, tuple[str, str]] = {
     "textencoder": ("text_encoder", "text_encoders"),
     "textualinversion": ("embedding", "embeddings"),
 }
+KIND_FOLDER = {kind: folder for kind, folder in TYPE_MAP.values()} | {"detector": "ultralytics"}
 
 MAX_CONCURRENT = 2
 THROTTLE = 0.25
@@ -82,7 +83,7 @@ async def start(version_id: int, file_id: int | None = None) -> dict:
     if f is None:
         raise civitai.CivitaiError("version has no files", 400)
     for d in _downloads.values():
-        if d["versionId"] == version_id and d["fileId"] == f["id"] and d["status"] in ("queued", "downloading"):
+        if d.get("source") == "civitai" and d["versionId"] == version_id and d["fileId"] == f["id"] and d["status"] in ("queued", "downloading"):
             return dict(d)
     kind, folder = kind_folder
     dest_dir = Path(settings().downloadRoot) / folder
@@ -103,10 +104,64 @@ async def start(version_id: int, file_id: int | None = None) -> dict:
         "status": "queued",
         "error": None,
         "fileId": f["id"],
+        "source": "civitai",
     }
     _downloads[did] = d
     _emit(d)
-    _tasks[did] = asyncio.create_task(_run(d, v, f, dest))
+    _tasks[did] = asyncio.create_task(_run(d, dest, lambda: _download(d, f, dest), lambda: _sidecars(d, v, dest)))
+    return dict(d)
+
+
+def _hf_dest(repo: str, path: str, kind: str, sub: str | None) -> Path:
+    folder = Path(settings().downloadRoot) / KIND_FOLDER[kind]
+    if kind == "detector":
+        folder = folder / (sub if sub in ("bbox", "segm") else "bbox")
+    return folder / _safe_name(hf.dest_name(repo, path))
+
+
+def hf_installed(repo: str, path: str, kind: str, sub: str | None) -> bool:
+    try:
+        return _hf_dest(repo, path, kind, sub).exists()
+    except KeyError:
+        return False
+
+
+async def start_hf(repo: str, path: str, kind: str, sub: str | None = None, size: int = 0) -> dict:
+    if kind not in KIND_FOLDER:
+        raise hf.HfError(f"unsupported model kind: {kind}", 400)
+    for d in _downloads.values():
+        if d.get("source") == "hf" and d.get("repo") == repo and d.get("file") == path and d["status"] in ("queued", "downloading"):
+            return dict(d)
+    dest = _hf_dest(repo, path, kind, sub)
+    if dest.exists():
+        raise hf.HfError(f"{dest.name} already exists", 409)
+    did = uuid.uuid4().hex[:10]
+    d = {
+        "id": did,
+        "name": dest.name,
+        "kind": kind,
+        "modelId": 0,
+        "versionId": 0,
+        "received": 0,
+        "total": int(size or 0),
+        "speed": 0.0,
+        "status": "queued",
+        "error": None,
+        "source": "hf",
+        "repo": repo,
+        "file": path,
+    }
+    _downloads[did] = d
+    _emit(d)
+
+    async def fetch():
+        await _fetch(d, hf.file_url(repo, path), hf.headers(), dest, "hugging face denied the file, accept the repo license on huggingface.co and set a token in settings")
+
+    async def sidecar():
+        meta = {"repo": repo, "path": path, "url": f"{hf.BASE}/{repo}"}
+        dest.with_name(dest.stem + ".hf.json").write_text(json.dumps(meta, indent=1), "utf-8")
+
+    _tasks[did] = asyncio.create_task(_run(d, dest, fetch, sidecar))
     return dict(d)
 
 
@@ -134,13 +189,13 @@ async def wait(did: str) -> None:
             pass
 
 
-async def _run(d: dict, v: dict, f: dict, dest: Path) -> None:
+async def _run(d: dict, dest: Path, fetch, sidecars) -> None:
     try:
         async with _semaphore():
             d["status"] = "downloading"
             _emit(d)
-            await _download(d, f, dest)
-            await _sidecars(d, v, dest)
+            await fetch()
+            await sidecars()
         d["status"] = "done"
         d["speed"] = 0.0
         d["received"] = d["total"] = max(d["total"], d["received"])
@@ -151,7 +206,7 @@ async def _run(d: dict, v: dict, f: dict, dest: Path) -> None:
         d["status"] = "cancelled"
         d["speed"] = 0.0
         _emit(d)
-    except civitai.CivitaiError as e:
+    except (civitai.CivitaiError, hf.HfError) as e:
         d["status"] = "error"
         d["error"] = str(e)
         d["speed"] = 0.0
@@ -164,16 +219,20 @@ async def _run(d: dict, v: dict, f: dict, dest: Path) -> None:
 
 
 async def _download(d: dict, f: dict, dest: Path) -> None:
+    url = f.get("downloadUrl") or f"https://civitai.com/api/download/models/{d['versionId']}"
+    await _fetch(d, url, civitai.headers(), dest, "civitai requires login for this file, set a civitai token in settings")
+
+
+async def _fetch(d: dict, url: str, hdrs: dict, dest: Path, denied: str) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
-    url = f.get("downloadUrl") or f"https://civitai.com/api/download/models/{d['versionId']}"
     have = part.stat().st_size if part.exists() else 0
-    hdrs = civitai.headers()
+    hdrs = dict(hdrs)
     if have:
         hdrs["Range"] = f"bytes={have}-"
     async with civitai.client().stream("GET", url, headers=hdrs, timeout=httpx.Timeout(30.0, read=60.0)) as r:
         if r.status_code in (401, 403):
-            raise civitai.CivitaiError("civitai requires login for this file, set a civitai token in settings", 401)
+            raise civitai.CivitaiError(denied, 401)
         if r.status_code == 416:
             have = 0
             part.unlink(missing_ok=True)
@@ -181,7 +240,7 @@ async def _download(d: dict, f: dict, dest: Path) -> None:
         if r.status_code >= 400:
             raise civitai.CivitaiError(f"download failed with http {r.status_code}", 502)
         if "text/html" in r.headers.get("content-type", ""):
-            raise civitai.CivitaiError("civitai requires login for this file, set a civitai token in settings", 401)
+            raise civitai.CivitaiError(denied, 401)
         mode = "ab"
         if r.status_code == 200 and have:
             have = 0
