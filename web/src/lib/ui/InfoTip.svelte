@@ -42,6 +42,7 @@
   class={['info', klass]}
   {style}
   aria-label={label}
+  data-tip={text}
   aria-expanded={open}
   aria-describedby={open ? id : undefined}
   onpointerenter={enter}
