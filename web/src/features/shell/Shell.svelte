@@ -12,8 +12,8 @@
   const nav = [
     { hash: '#/', icon: 'auto_awesome', label: 'Generate' },
     { hash: '#/inpaint', icon: 'format_paint', label: 'Inpaint' },
-    { hash: '#/grid', icon: 'grid_view', label: 'Grid' },
     { hash: '#/gallery', icon: 'photo_library', label: 'Gallery' },
+    { hash: '#/grid', icon: 'grid_view', label: 'Grid' },
     { hash: '#/models', icon: 'deployed_code', label: 'Models' },
     { hash: '#/settings', icon: 'settings', label: 'Settings' },
   ]
