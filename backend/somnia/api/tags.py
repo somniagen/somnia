@@ -6,8 +6,8 @@ router = APIRouter(prefix="/api/tags")
 
 
 @router.get("/search")
-def search(q: str = "", limit: int = Query(20, ge=1, le=200)):
-    return core.search(q, limit)
+def search(q: str = "", limit: int = Query(20, ge=1, le=200), category: int | None = None):
+    return core.search(q, limit, category)
 
 
 @router.get("/wiki/{name}")

@@ -189,7 +189,17 @@ def start_background_load() -> None:
     threading.Thread(target=get_index, name="somnia-tags", daemon=True).start()
 
 
-def search(query: str, limit: int = 20) -> list[dict]:
+_cat_arr: tuple[int, np.ndarray] | None = None
+
+
+def _cats(index: _Index) -> np.ndarray:
+    global _cat_arr
+    if _cat_arr is None or _cat_arr[0] != id(index):
+        _cat_arr = (id(index), np.asarray(index.cats, dtype=np.int16))
+    return _cat_arr[1]
+
+
+def search(query: str, limit: int = 20, category: int | None = None) -> list[dict]:
     q = normalize(query)
     index = get_index()
     if not q or index is None:
@@ -199,6 +209,8 @@ def search(query: str, limit: int = 20) -> list[dict]:
     lo = bisect.bisect_left(index.keys, q)
     hi = bisect.bisect_left(index.keys, q + MAX_CHAR, lo)
     span = index.key_rank[lo:hi]
+    if category is not None:
+        span = span[_cats(index)[span] == category]
     keep = limit * 4 + 20
     if span.size > keep:
         span = np.partition(span, keep)[:keep]
@@ -209,7 +221,9 @@ def search(query: str, limit: int = 20) -> list[dict]:
         hits = 0
         while pos != -1 and hits < CONTAINS_CAP:
             i = bisect.bisect_right(index.starts, pos) - 1
-            ranks.add(int(index.key_rank[i]))
+            r = int(index.key_rank[i])
+            if category is None or index.cats[r] == category:
+                ranks.add(r)
             hits += 1
             pos = index.hay.find(q, pos + 1)
 

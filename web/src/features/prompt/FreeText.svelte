@@ -116,7 +116,9 @@
       ctrl?.abort()
       const c = (ctrl = new AbortController())
       try {
-        const res = await searchTags(f.query.replace(/^-/, ''), c.signal)
+        // "-" marks a boilerplate removal, "@" searches artists only
+        const [, , at, q] = /^(-?)(@?)(.*)$/s.exec(f.query)!
+        const res = q.trim() ? await searchTags(q, c.signal, at ? 1 : undefined) : []
         if (c.signal.aborted || frag !== f) return
         items = res
         active = 0
@@ -141,7 +143,7 @@
   function accept(t: Tag) {
     const f = frag
     if (!f || !el) return
-    let ins = (f.query.startsWith('-') ? '-' : '') + displayTag(t.name)
+    let ins = /^-?@?/.exec(f.query)![0] + displayTag(t.name)
     if (f.start > 0 && value[f.start - 1] === ',') ins = ' ' + ins
     // typed in front of an existing tag: keep it unless the pick already ends with it (a mid-tag fix)
     const tail = value.slice(f.caret, f.end)

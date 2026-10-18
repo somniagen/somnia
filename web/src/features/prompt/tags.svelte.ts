@@ -50,13 +50,14 @@ export function colorOf(c: TagCategory | null | undefined) {
 
 const searchCache = new Map<string, Tag[]>()
 
-export async function searchTags(q: string, signal?: AbortSignal): Promise<Tag[]> {
+export async function searchTags(q: string, signal?: AbortSignal, category?: number): Promise<Tag[]> {
   const key = q.trim().toLowerCase().replace(/\s+/g, '_')
-  const hit = searchCache.get(key)
+  const ck = category === undefined ? key : `${category}:${key}`
+  const hit = searchCache.get(ck)
   if (hit) return hit
-  const res = await api.tags(key, 12, signal)
+  const res = await api.tags(key, 12, signal, category)
   if (searchCache.size > 300) searchCache.delete(searchCache.keys().next().value!)
-  searchCache.set(key, res)
+  searchCache.set(ck, res)
   for (const t of res) categories.set(t.name, t.category)
   return res
 }

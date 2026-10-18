@@ -84,7 +84,7 @@ function pushRun(out: Token[], s: string, start: number) {
     const at = start + lead
     if (body === 'BREAK') out.push({ kind: 'break', text: body, start: at })
     else if (/^embedding:\S+$/i.test(body)) out.push({ kind: 'lora', text: body, start: at })
-    else out.push({ kind: 'tag', text: body, start: at, tag: normalizeTag(body) })
+    else out.push({ kind: 'tag', text: body, start: at, tag: normalizeTag(body.replace(/^-?@?/, '')) })
   }
   const trail = s.length - lead - body.length
   if (trail > 0 && body) out.push({ kind: 'space', text: s.slice(s.length - trail), start: start + s.length - trail })

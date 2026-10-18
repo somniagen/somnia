@@ -168,7 +168,8 @@ export const api = {
   setPluginEnabled: (id: string, enabled: boolean) => put<PluginInfo>(`/api/plugins/${id}`, { enabled }),
   cancelDownload: (id: string) => del<void>(`/api/downloads/${id}`),
 
-  tags: (q: string, limit = 20, signal?: AbortSignal) => get<Tag[]>(`/api/tags/search${qs({ q, limit })}`, signal),
+  tags: (q: string, limit = 20, signal?: AbortSignal, category?: number) =>
+    get<Tag[]>(`/api/tags/search${qs({ q, limit, category })}`, signal),
   tagRelated: (name: string, limit = 16) => get<RelatedTag[]>(`/api/tags/related/${encodeURIComponent(name)}${qs({ limit })}`),
   tagWiki: (name: string) => get<TagWiki>(`/api/tags/wiki/${encodeURIComponent(name)}`),
   tagLookup: (names: string[]) =>

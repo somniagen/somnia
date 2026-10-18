@@ -130,7 +130,7 @@ Downloads write `<file>.civitai.json` (model + version json) and `<file>.preview
 `somnia/plugins.py` polls `plugins/` every second and loads, reloads or unloads plugins whose files changed (`PluginInfo.rev`), broadcasting `{type:'plugins', plugins}`; plugin events arrive as `{type:'plugin', plugin, event, data}`. The client (`lib/plugins.svelte.ts`) re-imports a web entry whenever its `rev` changes. See `docs/plugins.md`.
 
 ## Tags (owner: tags)
-| GET | `/api/tags/search` | `?q&limit=20` | `Tag[]` (prefix + alias match, sorted by count; `q` uses spaces or underscores) |
+| GET | `/api/tags/search` | `?q&limit=20&category` | `Tag[]` (prefix + alias match, sorted by count; `q` uses spaces or underscores; `category` limits to one danbooru category, 1 = artist) |
 | GET | `/api/tags/wiki/{name}` | | `TagWiki` (danbooru wiki, cached on disk; body is plain text with dtext stripped to light markdown) |
 | GET | `/api/tags/related/{name}` | `?limit=16` | `RelatedTag[]` tags that co-occur with `name` on danbooru, most similar first, meta tags dropped (cached on disk) |
 | GET | `/api/tags/lookup` | `?names=a,b,c` | `Record<string, TagCategory>` for coloring existing prompt tags |
