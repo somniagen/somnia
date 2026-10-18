@@ -48,7 +48,7 @@ Somnia opens at **http://127.0.0.1:7865**. Put your checkpoints in `./models`. A
 
 ### Good images without the fiddling
 
-- Tuned defaults for **WAI-Illustrious-SDXL v17** and **AnimaYume 1.5**, so the first generation already looks right
+- Tuned defaults for **WAI-Illustrious-SDXL v17** and **Anima-2.9B**, so the first generation already looks right
 - **Hires fix, detailers and upscalers** built in: fix faces and hands automatically, then upscale to 2x or 4x
 - **LoRAs** with their trigger words suggested for you, plus PAG and every common sampler
 - **Live previews** that show the real composition after a few steps, not a noisy blur

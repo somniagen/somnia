@@ -127,7 +127,7 @@ def illustrious_defaults() -> dict:
 
 
 def anima_defaults() -> dict:
-    model = _pick("checkpoint", ["animayume"], "anima") or _pick_family("checkpoint", "anima")
+    model = _pick("checkpoint", ["anima29b", "anima-2.9b", "anima_2.9b", "anima2.9b", "animayume"], "anima") or _pick_family("checkpoint", "anima")
     te = _pick_family("text_encoder", "anima")
     vae = _pick("vae", ["qwen_image_vae", "qwen-image-vae", "qwen_image", "wan_2.1_vae", "wan2.1"])
     d = illustrious_defaults()
@@ -137,19 +137,22 @@ def anima_defaults() -> dict:
             "model": model,
             "vae": vae or None,
             "textEncoder": te or None,
-            "prompt": "masterpiece, best quality, ",
-            "negative": "worst quality, low quality, blurry, jpeg artifacts, bad anatomy, bad hands, watermark, text",
-            "width": 896,
-            "height": 1152,
+            # tuned for anima-2.9b, following the creator's own showcase workflows
+            "prompt": "masterpiece, best quality, highres, absurdres, year 2025, year 2026, (@korusakku:0.7), (@luozhou pile:0.8), ",
+            "negative": "worst quality, low quality, lowres, old, ancient, score_1, score_2, score_3, blurry, jpeg artifacts, sepia, "
+            "chromatic aberration, bad anatomy, bad hands, missing fingers, extra limbs, deformed, watermark, signature, artist name, text, "
+            "scan artifacts",
+            "width": 1152,
+            "height": 1536,
             "steps": 30,
-            "cfg": 4.5,
-            "sampler": "er_sde",
-            "scheduler": "simple",
+            "cfg": 4.0,
+            "sampler": "euler",
+            "scheduler": "sgm_uniform",
             "clipSkip": 1,
             "pag": {"enabled": False, "scale": 2.0},
         }
     )
-    d["secondPass"] = dict(d["secondPass"], steps=15, denoise=0.35)
+    d["secondPass"] = dict(d["secondPass"], steps=20, denoise=0.45)
     return d
 
 

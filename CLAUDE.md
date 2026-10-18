@@ -1,6 +1,6 @@
 # Somnia
 
-Local image-gen WebUI for Illustrious (SDXL, e.g. WAI-Illustrious-SDXL v17) and Anima (e.g. AnimaYume 1.5). Python (FastAPI + pure diffusers/torch) backend, Svelte 5 + Vite + TS frontend.
+Local image-gen WebUI for Illustrious (SDXL, e.g. WAI-Illustrious-SDXL v17) and Anima (e.g. Anima-2.9B). Python (FastAPI + pure diffusers/torch) backend, Svelte 5 + Vite + TS frontend.
 
 ## Layout
 - `backend/somnia/` python package. Run: `.venv/Scripts/python -m somnia` (from `backend/`, or with `PYTHONPATH=backend`). Port 7865.
@@ -14,7 +14,7 @@ Local image-gen WebUI for Illustrious (SDXL, e.g. WAI-Illustrious-SDXL v17) and 
 - Simple, UX focused, workstation-like UI. Very dark neutral background (`--bg` / `--grad-bg` in tokens), no tinted grays. Surfaces and raised controls use the `--grad-*` gradient tokens plus `--sheen` top highlights. Primary/highlighted buttons are white; color only for semantic state (danger red, success, warning) and tag colors.
 - Glowing top progress bar (leading edge glows), status line shows crawling hazard stripes while running.
 - Built-in model manager: browse/pull/sort models and loras from Civitai, view examples and their prompts.
-- Customizable params with high-quality defaults for WAI-Illustrious v17 and AnimaYume 1.5, plus quality tools (second pass/hires, detailer, upscalers, PAG...).
+- Customizable params with high-quality defaults for WAI-Illustrious v17 and Anima-2.9B, plus quality tools (second pass/hires, detailer, upscalers, PAG...).
 - Responsive, works well on mobile.
 - Painless install (`install.bat` / `install.sh`, uv based).
 - Toggle for exposing the UI on the local network.
@@ -84,3 +84,4 @@ When you finish a feature, add one short line here.
 - toonout background removal: `bgModel` setting (`toonout` BiRefNet anime onnx default, `isnet` fast), `onnxruntime-gpu<1.27` pinned so it runs on CUDA 12 next to torch cu128
 - settings page: one scrolling page, sticky section `Tabs` with scrollspy plus `SearchField` (ui primitive), search over labels, keywords (`data-find`) and InfoTip text with highlights (`features/settings/find.ts`, Ctrl+F or `/`), `#/settings/<section>` scrolls there and follows scrolling
 - anima 2.9b + samplers: dit depth/width read from weights (40 block layer-expanded Anima-2.9B), text encoders tagged by weights, `res_multistep` sampler, `beta57` / `linear_quadratic` schedulers (match comfy)
+- anima-2.9b defaults: euler + sgm_uniform, cfg 4, 30 steps, 1152x1536, creator style prefix with year and `@korusakku` / `@luozhou pile` artist tags and long negative (`presets.py`, from the creator's showcase workflows); preset prefers anima29b checkpoints; recreating a creator image with the same seed matches comfy
