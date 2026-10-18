@@ -1,6 +1,7 @@
 <script lang="ts">
   import IconButton from './IconButton.svelte'
   import NumberField from './NumberField.svelte'
+  import Segmented from './Segmented.svelte'
 
   interface Props {
     width?: number
@@ -58,12 +59,33 @@
     if (width !== height) orient = width > height ? 'landscape' : 'portrait'
   })
 
+  let by = $state<'short' | 'mp'>(load())
+  function load(): 'short' | 'mp' {
+    try {
+      return localStorage.getItem('somnia.aspect.by') === 'mp' ? 'mp' : 'short'
+    } catch {
+      return 'short'
+    }
+  }
+  function setBy(v: 'short' | 'mp') {
+    try {
+      localStorage.setItem('somnia.aspect.by', v)
+    } catch {}
+  }
+
   const short = $derived(Math.min(width, height))
   const snap = (v: number) => Math.max(min, Math.min(max, Math.round(v / step) * step))
-  function fromRatio(a: number, b: number, s = short) {
+  const shortFor = (r: number, m = width * height) => Math.sqrt(m / r)
+  function fromRatio(a: number, b: number, s = by === 'mp' ? shortFor(Math.max(a, b) / Math.min(a, b)) : short) {
     const sh = snap(s)
     const lg = snap((sh * Math.max(a, b)) / Math.min(a, b))
     return orient === 'landscape' ? [lg, sh] : [sh, lg]
+  }
+  function setMp(v: number) {
+    const r = Math.max(width, height) / short
+    const sh = snap(shortFor(r, v * 1e6))
+    const lg = snap(sh * r)
+    set(...((orient === 'landscape' ? [lg, sh] : [sh, lg]) as [number, number]))
   }
   function setShort(v: number) {
     const sh = snap(v)
@@ -142,8 +164,18 @@
   </div>
   {#if ratios}
     <div class="dims">
-      <NumberField label="Min" value={short} {step} {min} {max} steppers={false} size="sm" onchange={setShort} />
-      <span class="hintm">short side</span>
+      {#if by === 'mp'}
+        <NumberField label="MP" value={+mp} step={0.01} min={0.1} max={(max * max) / 1e6} steppers={false} size="sm" onchange={setMp} />
+      {:else}
+        <NumberField label="Min" value={short} {step} {min} {max} steppers={false} size="sm" onchange={setShort} />
+      {/if}
+      <Segmented
+        items={[{ value: 'short', label: 'Side' }, { value: 'mp', label: 'MP' }]}
+        bind:value={by}
+        onchange={setBy}
+        size="sm"
+        label="Size by"
+      />
     </div>
   {/if}
   <div class="dims">
@@ -249,11 +281,6 @@
   }
   .dims :global(.nf) {
     width: 104px;
-  }
-  .hintm {
-    color: var(--text-faint);
-    font-size: var(--fs-sm);
-    margin-left: var(--sp-1);
   }
   .wh {
     font-variant-numeric: tabular-nums;
