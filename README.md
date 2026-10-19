@@ -96,7 +96,7 @@ Somnia opens at **http://127.0.0.1:7865**. Put your checkpoints in `./models`. A
 
 ### Make it your own
 
-- **Plugins** add pages, image actions, API routes and generation hooks. Drop a folder into `plugins/`, and every save reloads it live, without restarting anything. See the [plugin docs](docs/plugins.md)
+- **Plugins** add pages, image actions, API routes and generation hooks. Drop a folder into `plugins/`, and every save reloads it live, without restarting anything. See the [plugin docs](https://github.com/somniagen/somnia/wiki/Plugins)
 
 ## License
 
