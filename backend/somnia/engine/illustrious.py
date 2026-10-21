@@ -14,9 +14,10 @@ from PIL import Image
 from ..config import settings
 from ..presets import ILLUSTRIOUS_SAMPLERS as SAMPLERS
 from ..presets import ILLUSTRIOUS_SCHEDULERS as SCHEDULERS
-from . import mem, previews
+from . import device, mem, previews
 from .base import Engine, RunContext, SampleRequest
 from .noise import slerp
+from .stepcache import StepCache, attach_unet
 
 HF_CACHE = str(previews.HF_CACHE)
 log = logging.getLogger(__name__)
@@ -163,7 +164,7 @@ def _fp16_vae():
         try:
             from diffusers import AutoencoderKL
 
-            _fix_vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16, cache_dir=HF_CACHE)
+            _fix_vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=device.half(), cache_dir=HF_CACHE)
             _fix_vae.register_to_config(force_upcast=False)
         except Exception:
             _fix_vae = False
@@ -171,7 +172,7 @@ def _fp16_vae():
 
 
 def cap_vram(margin_mb: int = 384) -> None:
-    if not torch.cuda.is_available():
+    if not device.is_cuda():
         return
     free, total = torch.cuda.mem_get_info()
     frac = (free + torch.cuda.memory_reserved() - margin_mb * 2**20) / total
@@ -223,7 +224,10 @@ def decode_latents(vae, latents: torch.Tensor, progress=None) -> list[Image.Imag
                         finally:
                             vae.to(torch.float16)
                     break
-                except torch.OutOfMemoryError:
+                except (torch.OutOfMemoryError, RuntimeError) as e:
+                    # mps reports oom as a plain RuntimeError
+                    if not isinstance(e, torch.OutOfMemoryError) and "out of memory" not in str(e).lower():
+                        raise
                     x = None
                     mem.flush()
                     if attempt:
@@ -267,6 +271,7 @@ class _Loaded:
     vae_id: str | None = None
     loras: dict[str, str] = field(default_factory=dict)
     offload: bool = False
+    low: bool = False
     te: list = field(default_factory=list)
     # lowercase embedding name -> space separated tokens ("" when it failed to load)
     embeds: dict[str, str] = field(default_factory=dict)
@@ -322,7 +327,7 @@ class IllustriousEngine(Engine):
 
         s = settings()
         cur = self._cur
-        if cur and cur.id == model_id and cur.offload == bool(s.lowVram):
+        if cur and cur.id == model_id and cur.low == bool(s.lowVram):
             return cur
         ctx.progress("load", 0, 1, None)
         self._free(cur)
@@ -331,23 +336,27 @@ class IllustriousEngine(Engine):
         mem.flush()
         path = ctx.resolve(model_id)
         pipe = StableDiffusionXLPipeline.from_single_file(
-            str(path), torch_dtype=torch.float16, cache_dir=HF_CACHE, use_safetensors=str(path).endswith(".safetensors")
+            str(path), torch_dtype=device.half(), cache_dir=HF_CACHE, use_safetensors=str(path).endswith(".safetensors")
         )
         pipe.set_progress_bar_config(disable=True)
         fix = _fp16_vae()
         if fix is not None:
             pipe.vae = fix
-        ld = _Loaded(id=model_id, pipe=pipe, base_vae=pipe.vae)
-        if s.lowVram:
+        ld = _Loaded(id=model_id, pipe=pipe, base_vae=pipe.vae, low=bool(s.lowVram))
+        dev = device.get()
+        if s.lowVram and device.is_cuda():
             pipe.enable_model_cpu_offload()
             ld.offload = True
-        else:
-            pipe.unet.to("cuda")
-            pipe.vae.to("cuda")
+        elif device.gpu():
+            if s.lowVram:
+                # unified memory has nothing to offload to, slicing caps the attention peak instead
+                pipe.enable_attention_slicing()
+            pipe.unet.to(dev)
+            pipe.vae.to(dev)
             ld.te = [mem.Parked(pipe.text_encoder), mem.Parked(pipe.text_encoder_2)]
             if not mem.tight():
-                pipe.text_encoder.to("cuda")
-                pipe.text_encoder_2.to("cuda")
+                pipe.text_encoder.to(dev)
+                pipe.text_encoder_2.to(dev)
                 ld.te = []
         mem.flush()
         self._cur = ld
@@ -368,10 +377,10 @@ class IllustriousEngine(Engine):
             if v is None:
                 self._vaes.clear()
                 mem.flush()
-                v = AutoencoderKL.from_single_file(str(ctx.resolve(vae_id)), torch_dtype=torch.float16, cache_dir=HF_CACHE)
+                v = AutoencoderKL.from_single_file(str(ctx.resolve(vae_id)), torch_dtype=device.half(), cache_dir=HF_CACHE)
                 self._vaes = {vae_id: v}
             pipe.vae = v
-        dev = "cpu" if ld.offload else "cuda"
+        dev = "cpu" if ld.offload else device.get()
         pipe.vae.to(dev)
         if vae_id and ld.base_vae is not pipe.vae:
             ld.base_vae.to("cpu")
@@ -470,7 +479,7 @@ class IllustriousEngine(Engine):
     @torch.no_grad()
     def _encode_chunks(self, pipe, chunks, layer: int):
         tok = pipe.tokenizer
-        dev = torch.device("cuda")
+        dev = device.get()
         embs = []
         pooled = None
         for ci, (t, w) in enumerate(chunks):
@@ -533,7 +542,7 @@ class IllustriousEngine(Engine):
         if cls is type(base):
             return base
         kw = {"pag_applied_layers": ["mid"]} if pag else {}
-        p = cls.from_pipe(base, torch_dtype=torch.float16, **kw)
+        p = cls.from_pipe(base, torch_dtype=device.half(), **kw)
         p.set_progress_bar_config(disable=True)
         return p
 
@@ -542,9 +551,9 @@ class IllustriousEngine(Engine):
 
         # same draw as diffusers prepare_latents, so the pipeline's own generator use stays identical
         shape = (n, base.unet.config.in_channels, h // base.vae_scale_factor, w // base.vae_scale_factor)
-        main = randn_tensor(shape, generator=gens, device=torch.device("cpu"), dtype=torch.float16)
+        main = randn_tensor(shape, generator=gens, device=torch.device("cpu"), dtype=base.unet.dtype)
         vg = [torch.Generator("cpu").manual_seed(int(req.variation_seed) + i) for i in range(n)]
-        var = randn_tensor(shape, generator=vg, device=torch.device("cpu"), dtype=torch.float16)
+        var = randn_tensor(shape, generator=vg, device=torch.device("cpu"), dtype=base.unet.dtype)
         return slerp(main, var, float(req.variation_strength))
 
     def sample(self, req: SampleRequest, ctx: RunContext) -> list[Image.Image]:
@@ -616,9 +625,14 @@ class IllustriousEngine(Engine):
 
             sched.step = step
 
+        # the unet's shallow blocks track the noisy latent, not the prediction, so sdxl caches on a fixed rhythm
+        cache = StepCache(None, max_skip=int(req.step_cache)) if req.step_cache >= 1 else None
+
         def cb(p, i, t, kw):
             ctx.check()
             total = getattr(p, "_num_timesteps", None) or req.steps
+            if cache is not None:
+                cache.window(i + 1, total)
             prev = None
             if every and (i + 1) % every == 0 and i + 1 < total:
                 try:
@@ -651,16 +665,20 @@ class IllustriousEngine(Engine):
             if req.variation_seed is not None and phase == "sample":
                 kw["latents"] = self._variation_noise(base, req, gens, n, w, h)
         elif kind == "img":
-            img = lat_in.to("cuda", torch.float16) if lat_in is not None else init
+            img = lat_in.to(device.get(), base.unet.dtype) if lat_in is not None else init
             kw.update(image=img, strength=denoise)
         else:
             mask = req.mask.convert("L").resize((w, h), Image.LANCZOS)
             kw.update(image=init, mask_image=mask, strength=denoise, width=w, height=h)
 
         saved = base.unet.attn_processors if pag else None
+        detach = attach_unet(base.unet, cache) if cache is not None else None
         try:
             lat = pipe(**kw).images
         finally:
+            if detach is not None:
+                detach()
+                log.info("step cache reused %d steps", cache.hits)
             if saved is not None:
                 base.unet.set_attn_processor(saved)
             del kw, pipe

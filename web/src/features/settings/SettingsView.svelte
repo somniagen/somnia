@@ -355,7 +355,7 @@
               <Toggle checked={s.lowVram} disabled={readonly} aria-label="Low VRAM" onchange={(v) => save({ lowVram: v })} />
             </div>
             <div class="line" data-find="tf32 fp16 speed rtx cuda">
-              <span class="lbl">NVIDIA optimizations <InfoTip text="TF32 and fp16 accumulation matmuls, fp16 Anima. Faster on RTX cards, tiny numeric differences." /></span>
+              <span class="lbl">NVIDIA optimizations <InfoTip text="TF32 and fp16 accumulation matmuls, cuDNN attention, fp16 Anima. Faster on RTX cards, tiny numeric differences." /></span>
               <Toggle
                 checked={s.nvidiaOptimizations}
                 disabled={readonly}

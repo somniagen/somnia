@@ -4,11 +4,13 @@ import gc
 
 import torch
 
+from . import device
+
 
 def flush() -> None:
     gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    device.empty_cache()
+    if device.is_cuda():
         try:
             torch._C._host_emptyCache()
         except Exception:
@@ -16,12 +18,12 @@ def flush() -> None:
 
 
 def vram_total() -> int:
-    if not torch.cuda.is_available():
-        return 0
-    return torch.cuda.get_device_properties(0).total_memory
+    return device.total_memory()
 
 
 def tight() -> bool:
+    if device.unified():
+        return False
     return vram_total() < 20 * 2**30
 
 
@@ -31,21 +33,22 @@ class Parked:
 
     def __init__(self, module: torch.nn.Module, pin: bool = True):
         self.m = module
-        self.pin = pin and torch.cuda.is_available()
+        self.dev = device.get()
+        self.pin = pin and device.is_cuda()
         self.cpu: dict[int, tuple[torch.Tensor, torch.Tensor]] = {}
-        self.on_gpu = any(p.device.type == "cuda" for p in module.parameters())
+        self.on_gpu = any(p.device.type == self.dev.type for p in module.parameters())
 
     def _tensors(self):
         yield from self.m.parameters()
         yield from self.m.buffers()
 
     def gpu(self) -> None:
-        if self.on_gpu or not torch.cuda.is_available():
+        if self.on_gpu or not device.gpu():
             return
         for t in self._tensors():
-            if t.device.type != "cuda":
-                t.data = t.data.to("cuda", non_blocking=True)
-        torch.cuda.current_stream().synchronize()
+            if t.device.type != self.dev.type:
+                t.data = t.data.to(self.dev, non_blocking=self.pin)
+        device.synchronize()
         self.on_gpu = True
 
     def park(self) -> None:
@@ -67,4 +70,4 @@ class Parked:
             t.data = c
         self.cpu = keep
         self.on_gpu = False
-        torch.cuda.empty_cache()
+        device.empty_cache()

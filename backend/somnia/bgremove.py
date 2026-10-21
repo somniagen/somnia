@@ -62,6 +62,8 @@ def _session(name: str, cpu: bool = False):
                 except Exception:
                     pass
             providers.insert(0, ("CUDAExecutionProvider", {"arena_extend_strategy": "kSameAsRequested"}))
+        elif not cpu and "CoreMLExecutionProvider" in ort.get_available_providers():
+            providers.insert(0, "CoreMLExecutionProvider")
         opts = ort.SessionOptions()
         opts.log_severity_level = 3
         path = _model_path(name)

@@ -22,7 +22,9 @@ _failed: set[str] = set()
 
 
 def _dev() -> str:
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    from . import device
+
+    return device.kind()
 
 
 def taesd(repo: str = "madebyollin/taesdxl"):

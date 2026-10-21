@@ -9,6 +9,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+from . import device
+
 _lock = threading.Lock()
 _cache: dict[str, object] = {}
 
@@ -35,7 +37,7 @@ def unload() -> None:
     with _lock:
         _cache.clear()
     gc.collect()
-    torch.cuda.empty_cache()
+    device.empty_cache()
 
 
 def release() -> None:
@@ -58,8 +60,10 @@ def model_upscale(
     import torch.nn.functional as F
 
     m = load_upscaler(path)
-    m.to("cuda")
-    dtype = torch.float16 if getattr(m, "supports_half", False) else torch.float32
+    dev = device.get()
+    m.to(dev)
+    dtype = torch.float16 if getattr(m, "supports_half", False) and device.gpu() else torch.float32
+    m.to(dtype=dtype)
     s = int(m.scale)
     tile = tile or max(128, 1024 // max(1, s))
     so = min(float(s), float(target)) if target else float(s)
@@ -83,7 +87,7 @@ def model_upscale(
                 y0, x0 = min(y, max(0, h - tile)), min(xx, max(0, w - tile))
                 y1, x1 = min(y0 + tile, h), min(x0 + tile, w)
                 Y0, X0, Y1, X1 = int(round(y0 * so)), int(round(x0 * so)), int(round(y1 * so)), int(round(x1 * so))
-                t = x[:, :, y0:y1, x0:x1].to("cuda").to(dtype).div_(255)
+                t = x[:, :, y0:y1, x0:x1].to(dev).to(dtype).div_(255)
                 r = m(t)
                 del t
                 if r.shape[-2:] != (Y1 - Y0, X1 - X0):
@@ -107,7 +111,7 @@ def model_upscale(
                     progress(k, total)
     finally:
         m.to("cpu")
-        torch.cuda.empty_cache()
+        device.empty_cache()
     out.div_(wsum.clamp_(min=1e-6)).clamp_(0, 1)
     del wsum
     arr = out[0].permute(1, 2, 0).mul_(255).round_().byte().numpy()

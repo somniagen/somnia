@@ -2,7 +2,7 @@
   import ModelSelect from '$features/models/ModelSelect.svelte'
   import { session } from '$lib/session.svelte'
   import type { GenParams } from '$lib/types'
-  import { Button, Field, NumberField, Slider, Toggle, toast } from '$lib/ui'
+  import { Button, Field, NumberField, Segmented, Slider, Toggle, toast } from '$lib/ui'
   import Group from './Group.svelte'
 
   let { p }: { p: GenParams } = $props()
@@ -33,6 +33,19 @@
   </Field>
   <Field label="CFG rescale" info="Reduces over-saturation at high CFG. 0 is off.">
     {#snippet children()}<Slider bind:value={p.cfgRescale} min={0} max={1} step={0.05} defaultValue={0} />{/snippet}
+  </Field>
+  <Field label="Step cache" info="Reuses the model's deep work on steps that barely change. Light is about 1.5x faster with almost no difference, Fast about 2x with small detail changes.">
+    {#snippet children()}
+      <Segmented
+        items={[
+          { value: 0, label: 'Off' },
+          { value: 1, label: 'Light' },
+          { value: 2, label: 'Fast' },
+        ]}
+        bind:value={() => p.stepCache ?? 0, (v) => (p.stepCache = v)}
+        full
+      />
+    {/snippet}
   </Field>
   <Field label="VAE" info="Empty uses the VAE built into the checkpoint.">
     {#snippet children()}

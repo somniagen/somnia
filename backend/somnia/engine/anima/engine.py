@@ -10,9 +10,11 @@ import torch.nn.functional as F
 from PIL import Image
 from safetensors import safe_open
 
+from .. import device as devices
 from .. import mem, optim, previews
 from ..base import Engine, RunContext, SampleRequest
 from ..noise import slerp
+from ..stepcache import StepCache
 from . import lora as lora_mod
 from .dit import AnimaDiT
 from .sampling import SAMPLERS, SCHEDULERS, FlowSchedule, sample, sigmas_for
@@ -75,7 +77,10 @@ def _vae_prefix(keys) -> str | None:
 
 def _load(path: Path, prefix: str, device="cpu", skip=(), dtype=None, exclude=()) -> dict[str, torch.Tensor]:
     out = {}
-    with safe_open(str(path), framework="pt", device=str(device)) as f:
+    dev = torch.device(device)
+    # safetensors can't read straight into mps, move tensor by tensor so unified memory never holds two copies
+    src = "cpu" if dev.type == "mps" else str(dev)
+    with safe_open(str(path), framework="pt", device=src) as f:
         for k in f.keys():
             if k.startswith(prefix) and not any(s in k for s in skip):
                 n = k[len(prefix):]
@@ -84,7 +89,7 @@ def _load(path: Path, prefix: str, device="cpu", skip=(), dtype=None, exclude=()
                 t = f.get_tensor(k)
                 if dtype is not None and t.is_floating_point() and t.dtype != dtype:
                     t = t.to(dtype)
-                out[n] = t
+                out[n] = t.to(dev) if t.device != dev else t
     return out
 
 
@@ -111,12 +116,13 @@ class AnimaEngine(Engine):
     size_multiple = 16
 
     def __init__(self, device: str | None = None):
-        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
-        if self.device.type == "cuda" and torch.cuda.is_bf16_supported():
+        self.device = torch.device(device) if device else devices.get()
+        if self.device.type != "cpu" and devices.bf16_ok():
             self.dtype = torch.bfloat16
         elif self.device.type == "cuda":
             self.dtype = torch.float16
         else:
+            # the wan vae overflows in fp16, keep te/vae in fp32 when bf16 is missing
             self.dtype = torch.float32
         self.tok: AnimaTokenizer | None = None
         self.dit: AnimaDiT | None = None
@@ -135,8 +141,9 @@ class AnimaEngine(Engine):
         self.fp16_ok = True
 
     def _dit_dtype(self) -> torch.dtype:
-        # fp16 with fp16 accumulation is ~20% faster than bf16 on ampere consumer cards
-        if self.device.type == "cuda" and self.fp16_ok and optim.enabled():
+        # fp16 with fp16 accumulation is ~20% faster than bf16 on ampere consumer cards,
+        # apple gpus have no fast bf16 path at all. the residual stream stays fp32 either way
+        if self.fp16_ok and ((self.device.type == "cuda" and optim.enabled()) or self.device.type == "mps"):
             return torch.float16
         return self.dtype
 
@@ -157,8 +164,7 @@ class AnimaEngine(Engine):
         self.touched_dit.clear()
         self.touched_te.clear()
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        devices.empty_cache()
 
     def _ensure_models(self, req: SampleRequest, ctx: RunContext) -> None:
         mpath = Path(ctx.resolve(req.model))
@@ -204,10 +210,12 @@ class AnimaEngine(Engine):
             self._cond.clear()
             mem.flush()
             self.te = build_qwen3(_load(tpath, tp, dtype=self.dtype), self.dtype)
-            self.te_park = mem.Parked(self.te)
             if self.device.type == "cuda":
+                self.te_park = mem.Parked(self.te)
                 self.te_park.on_gpu = True
                 self.te_park.park()
+            else:
+                self.te.to(self.device)
             self.te_src = (tpath, tp)
             self._restore_all()
 
@@ -234,8 +242,8 @@ class AnimaEngine(Engine):
             v.load_state_dict(sd, strict=True, assign=True)
             del sd
             self.vae = v.eval().requires_grad_(False)
-            self.vae_park = mem.Parked(self.vae)
             if self.device.type == "cuda":
+                self.vae_park = mem.Parked(self.vae)
                 self.vae_park.on_gpu = True
                 self.vae_park.park()
             else:
@@ -452,6 +460,8 @@ class AnimaEngine(Engine):
 
         def model(xc: torch.Tensor, sigma: float, i: int) -> torch.Tensor:
             ctx.check()
+            if dit.cache is not None:
+                dit.cache.window(i, total)
             if mask is not None:
                 xc = xc * mask + (sigma * noise + (1 - sigma) * orig) * (1 - mask)
             xin = torch.cat([xc, xc], 0) if use_cfg else xc
@@ -482,7 +492,15 @@ class AnimaEngine(Engine):
             ctx.progress(progress_phase, i + 1, total, prev)
             return d
 
-        x = sample(req.sampler, model, x, sigmas.to(torch.float32), sched, seed)
+        # step_cache 1 light, 2 fast: relative change of block 0's residual still treated as unchanged
+        level = int(req.step_cache)
+        dit.cache = StepCache({1: 0.08, 2: 0.15}[min(level, 2)]) if level >= 1 else None
+        try:
+            x = sample(req.sampler, model, x, sigmas.to(torch.float32), sched, seed)
+        finally:
+            if dit.cache is not None:
+                log.info("step cache reused %d of %d steps", dit.cache.hits, total)
+            dit.cache = dit.cache_rest = None
         if mask is not None:
             x = x * mask + orig * (1 - mask)
         ctx.check()

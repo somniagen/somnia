@@ -18,6 +18,7 @@ export type AxisKind =
   | 'size'
   | 'detDenoise'
   | 'variation'
+  | 'stepCache'
 
 export type Input = 'int' | 'number' | 'select' | 'lines' | 'size'
 
@@ -69,6 +70,7 @@ export const KINDS: KindDef[] = [
   },
   { kind: 'pag', label: 'PAG scale', input: 'number', placeholder: '0, 1.5, 3', patch: (v) => ({ pag: { enabled: Number(v) > 0, scale: v } }) },
   { kind: 'cfgRescale', label: 'CFG rescale', input: 'number', placeholder: '0, 0.35, 0.7', patch: (v) => ({ cfgRescale: v }) },
+  { kind: 'stepCache', label: 'Step cache', input: 'int', placeholder: '0, 1, 2', patch: (v) => ({ stepCache: v }), show: (v) => ['Off', 'Light', 'Fast'][Number(v)] ?? String(v) },
   { kind: 'vae', label: 'VAE', input: 'select', patch: (v) => ({ vae: v || null }), show: (v) => (v ? short(String(v)) : 'Built in') },
   {
     kind: 'size',

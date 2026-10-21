@@ -26,7 +26,7 @@
 
 ## Quick start
 
-You need git and an NVIDIA GPU with about 12 GB of VRAM, on Windows 10/11 or Linux.
+You need git and an NVIDIA GPU with about 12 GB of VRAM, on Windows 10/11 or Linux. Apple Silicon Macs (16 GB+) run on Metal, experimentally.
 
 ### Windows
 ```pwsh

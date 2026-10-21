@@ -1,7 +1,12 @@
-import uvicorn
+import os
 
-from . import config, net
-from .app import create_app
+# ops metal lacks run on the cpu instead of failing, must be set before torch loads
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
+import uvicorn  # noqa: E402
+
+from . import config, net  # noqa: E402
+from .app import create_app  # noqa: E402
 
 
 def main() -> None:

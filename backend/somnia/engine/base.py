@@ -31,6 +31,8 @@ class SampleRequest:
     text_encoder: str | None = None
     pag_scale: float = 0.0
     cfg_rescale: float = 0.0
+    # reuse deep model work between similar steps: 0 off, 1 light, 2 fast
+    step_cache: int = 0
     # img2img / inpaint: init images are already at width x height, mask is L mode (white = repaint)
     init_images: list[Image.Image] | None = None
     mask: Image.Image | None = None

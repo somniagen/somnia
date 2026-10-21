@@ -30,9 +30,9 @@ def unload() -> None:
     with _lock:
         _models.clear()
     try:
-        import torch
+        from . import device
 
-        torch.cuda.empty_cache()
+        device.empty_cache()
     except Exception:
         pass
 
@@ -45,7 +45,11 @@ def release() -> None:
 def detect(img: Image.Image, path: Path, conf: float = 0.3) -> list[dict]:
     m = load_detector(path)
     img = img.convert("RGB")
-    res = m.predict(img, conf=conf, verbose=False)
+    from . import device
+
+    # ultralytics only picks cuda on its own
+    kw = {"device": "mps"} if device.is_mps() else {}
+    res = m.predict(img, conf=conf, verbose=False, **kw)
     out: list[dict] = []
     if not res:
         return out

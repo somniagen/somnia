@@ -86,6 +86,8 @@ export interface GenParams {
   loras: LoraRef[]
   pag: { enabled: boolean; scale: number }
   cfgRescale: number
+  // reuse deep model work between similar steps: 0 off, 1 light, 2 fast
+  stepCache?: number
   secondPass: SecondPass
   detailers: DetailerPass[]
   upscale: FinalUpscale

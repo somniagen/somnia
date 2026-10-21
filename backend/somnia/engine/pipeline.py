@@ -115,6 +115,7 @@ def _base_request(p: dict, seed: int) -> SampleRequest:
         text_encoder=p.get("textEncoder") or None,
         pag_scale=float(pag.get("scale", 0.0)) if pag.get("enabled") else 0.0,
         cfg_rescale=float(p.get("cfgRescale") or 0.0),
+        step_cache=int(p.get("stepCache") or 0),
         variation_seed=vseed,
         variation_strength=vs if vseed is not None else 0.0,
     )

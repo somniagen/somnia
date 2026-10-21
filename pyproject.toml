@@ -13,8 +13,9 @@ dependencies = [
   "spandrel",
   "ultralytics",
   "opencv-python-headless",
-  # 1.27+ is built for cuda 13, torch here is cu128
-  "onnxruntime-gpu<1.27",
+  # 1.27+ is built for cuda 13, torch here is cu128. macs get the coreml build
+  "onnxruntime-gpu<1.27; sys_platform != 'darwin'",
+  "onnxruntime; sys_platform == 'darwin'",
   "numpy",
   "pillow",
   "fastapi",

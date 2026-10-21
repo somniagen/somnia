@@ -103,6 +103,7 @@ def illustrious_defaults() -> dict:
         "loras": [],
         "pag": {"enabled": False, "scale": 3.0},
         "cfgRescale": 0.0,
+        "stepCache": 0,
         "secondPass": {
             "enabled": False,
             "upscaler": hires,

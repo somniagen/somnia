@@ -241,10 +241,10 @@ def _fail(job: dict, e: Exception) -> None:
     if "out of memory" in msg.lower() or type(e).__name__ == "OutOfMemoryError":
         msg = "out of memory: " + msg
         try:
-            import torch
+            from .engine import device
 
             gc.collect()
-            torch.cuda.empty_cache()
+            device.empty_cache()
         except Exception:
             pass
     job["status"] = "error"

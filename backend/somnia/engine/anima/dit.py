@@ -6,11 +6,29 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from ..stepcache import StepCache
 
-def _rope_apply(t: torch.Tensor, freqs: torch.Tensor) -> torch.Tensor:
-    t_ = t.reshape(*t.shape[:-1], 2, -1).movedim(-2, -1).unsqueeze(-2).float()
-    out = freqs[..., 0] * t_[..., 0] + freqs[..., 1] * t_[..., 1]
-    return out.movedim(-1, -2).reshape(*t.shape).type_as(t)
+
+def _fma(base: torch.Tensor, a: torch.Tensor, b: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+    # base + a * b in fp32 opmath, stored as dtype. cuda does it in one mixed dtype pass,
+    # other backends get plain same dtype ops
+    if base.device.type == "cuda":
+        shape = torch.broadcast_shapes(base.shape, a.shape, b.shape)
+        return torch.addcmul(base, a, b, out=torch.empty(shape, dtype=dtype, device=base.device))
+    return (base.float() + a.float() * b.float()).to(dtype)
+
+
+def _residual(x: torch.Tensor, g: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
+    if x.device.type == "cuda":
+        return x.addcmul_(g.to(x.dtype), r)
+    return x.add_(g.to(x.dtype) * r.to(x.dtype))
+
+
+def _rope_apply(t: torch.Tensor, rope: tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+    # rotate half form of comfy's 2x2 rotation, same fp32 math in a third of the memory passes
+    cos, sin = rope
+    half = t.shape[-1] // 2
+    return _fma(t * cos, torch.cat([t[..., half:], t[..., :half]], dim=-1), sin, t.dtype)
 
 
 class Attention(nn.Module):
@@ -69,27 +87,28 @@ class Block(nn.Module):
         self.adaln_modulation_mlp = _adaln(dim, lora_dim, 3)
 
     def forward(self, x, emb, context, rope, adaln_lora):
-        rdt = x.dtype
         cdt = emb.dtype
         b, t, h, w, d = x.shape
 
         def mod(m):
             return [c[:, :, None, None, :] for c in (m(emb) + adaln_lora).chunk(3, dim=-1)]
 
+        def norm(ln, sh, sc):
+            # ln(x) * (1 + sc) + sh written straight into the compute dtype
+            return _fma(sh, ln(x), 1 + sc, cdt)
+
+        # the residual stream is owned by this forward, so it is updated in place
         sh, sc, g = mod(self.adaln_modulation_self_attn)
-        n = self.layer_norm_self_attn(x) * (1 + sc) + sh
-        r = self.self_attn(n.to(cdt).reshape(b, -1, d), None, rope).view(b, t, h, w, d)
-        x = x + g.to(rdt) * r.to(rdt)
+        r = self.self_attn(norm(self.layer_norm_self_attn, sh, sc).view(b, -1, d), None, rope).view(b, t, h, w, d)
+        _residual(x, g, r)
 
         sh, sc, g = mod(self.adaln_modulation_cross_attn)
-        n = self.layer_norm_cross_attn(x) * (1 + sc) + sh
-        r = self.cross_attn(n.to(cdt).reshape(b, -1, d), context).view(b, t, h, w, d)
-        x = r.to(rdt) * g.to(rdt) + x
+        r = self.cross_attn(norm(self.layer_norm_cross_attn, sh, sc).view(b, -1, d), context).view(b, t, h, w, d)
+        _residual(x, g, r)
 
         sh, sc, g = mod(self.adaln_modulation_mlp)
-        n = self.layer_norm_mlp(x) * (1 + sc) + sh
-        r = self.mlp(n.to(cdt))
-        return x + g.to(rdt) * r.to(rdt)
+        r = self.mlp(norm(self.layer_norm_mlp, sh, sc))
+        return _residual(x, g, r)
 
 
 class FinalLayer(nn.Module):
@@ -140,7 +159,7 @@ class Rope3D(nn.Module):
         self.w_ntk = w_ratio ** (dim_h / (dim_h - 2))
         self.t_ntk = t_ratio ** (dim_t / (dim_t - 2))
 
-    def forward(self, T: int, H: int, W: int, device) -> torch.Tensor:
+    def forward(self, T: int, H: int, W: int, device) -> tuple[torch.Tensor, torch.Tensor]:
         sr = torch.arange(0, self.dim_h, 2, device=device)[: self.dim_h // 2].float() / self.dim_h
         tr = torch.arange(0, self.dim_t, 2, device=device)[: self.dim_t // 2].float() / self.dim_t
         hf = 1.0 / ((10000.0 * self.h_ntk) ** sr)
@@ -162,7 +181,9 @@ class Rope3D(nn.Module):
             ],
             dim=-2,
         )
-        return em.reshape(T * H * W, em.shape[-2], 2, 2).float()
+        em = em.reshape(T * H * W, em.shape[-2], 2, 2).float()
+        cos, sin = em[..., 0, 0], em[..., 1, 0]
+        return torch.cat([cos, cos], -1), torch.cat([-sin, sin], -1)
 
 
 class PatchEmbed(nn.Module):
@@ -271,6 +292,9 @@ class AnimaDiT(nn.Module):
         self.final_layer = FinalLayer(model_channels, patch, t_patch, out_channels)
         self.t_embedding_norm = nn.RMSNorm(model_channels, eps=1e-6)
         self.llm_adapter = LLMAdapter()
+        self._rope: dict[tuple, tuple[torch.Tensor, torch.Tensor]] = {}
+        self.cache: StepCache | None = None
+        self.cache_rest: torch.Tensor | None = None
 
     def encode_text(self, hidden: torch.Tensor, t5_ids: torch.Tensor, t5_weights: torch.Tensor | None = None, min_len: int = 512):
         out = self.llm_adapter(hidden, t5_ids)
@@ -288,15 +312,33 @@ class AnimaDiT(nn.Module):
         pad_mask = torch.zeros(b, 1, *x.shape[2:], dtype=x.dtype, device=x.device)
         h = self.x_embedder(torch.cat([x, pad_mask], dim=1))
         _, t, hh, ww, d = h.shape
-        rope = self.pos_embedder(t, hh, ww, x.device)[None, :, None]
+        key = (t, hh, ww, x.device)
+        rope = self._rope.get(key)
+        if rope is None:
+            self._rope.clear()
+            rope = self._rope[key] = tuple(f[None, :, None] for f in self.pos_embedder(t, hh, ww, x.device))
         if timesteps.ndim == 1:
             timesteps = timesteps[:, None]
         emb, adaln_lora = self.t_embedder[1](self.t_embedder[0](timesteps).to(h.dtype))
         emb = self.t_embedding_norm(emb)
         if h.dtype == torch.float16:
             h = h.float()
-        for blk in self.blocks:
-            h = blk(h, emb, context, rope, adaln_lora)
+        sc = self.cache
+        if sc is None:
+            for blk in self.blocks:
+                h = blk(h, emb, context, rope, adaln_lora)
+        else:
+            inp = h.clone()
+            h = self.blocks[0](h, emb, context, rope, adaln_lora)
+            first = h - inp
+            del inp
+            if sc.check(first):
+                h += self.cache_rest
+            else:
+                start = h.clone()
+                for blk in self.blocks[1:]:
+                    h = blk(h, emb, context, rope, adaln_lora)
+                self.cache_rest = h - start
         out = self.final_layer(h.to(context.dtype), emb, adaln_lora)
         p, r = self.patch, self.t_patch
         out = out.view(b, t, hh, ww, p, p, r, self.out_channels).permute(0, 7, 1, 6, 2, 4, 3, 5)

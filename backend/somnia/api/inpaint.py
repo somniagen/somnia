@@ -46,10 +46,12 @@ def _yolo(path: str):
 
 def _device() -> str | int:
     try:
-        import torch
+        from ..engine import device
 
-        if torch.cuda.is_available() and torch.cuda.mem_get_info()[0] > 1.5 * 1024**3:
+        if device.is_cuda() and device.free_memory() > 1.5 * 1024**3:
             return 0
+        if device.is_mps():
+            return "mps"
     except Exception:
         pass
     return "cpu"
@@ -57,13 +59,12 @@ def _device() -> str | int:
 
 def _release(m) -> None:
     try:
-        import torch
+        from ..engine import device
 
         m.predictor = None
         m.to("cpu")
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        device.empty_cache()
     except Exception:
         pass
 
