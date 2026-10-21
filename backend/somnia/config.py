@@ -36,15 +36,30 @@ def comfy_models() -> Path | None:
         if v and (Path(v) / sub / "checkpoints").is_dir():
             return Path(v) / sub
     home = Path.home()
+    empty = None
     for base in [ROOT.parent, home, home / "Documents", home / "Desktop", *_fixed_drives()]:
         for g in _COMFY_GLOBS:
             try:
                 for m in sorted(base.glob(g)):
                     if (m / "checkpoints").is_dir():
-                        return m
+                        # a bare install without weights only wins when nothing else is found
+                        if _has_models(m):
+                            return m
+                        empty = empty or m
             except OSError:
                 continue
-    return None
+    return empty
+
+
+def _has_models(models: Path) -> bool:
+    for sub in ("checkpoints", "diffusion_models", "unet", "vae"):
+        d = models / sub
+        try:
+            if d.is_dir() and any(p.suffix.lower() in (".safetensors", ".ckpt", ".pt", ".pth", ".gguf") for p in d.rglob("*")):
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def _default_roots() -> list[str]:
